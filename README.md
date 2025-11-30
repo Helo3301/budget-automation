@@ -211,7 +211,13 @@ nohup uvicorn web.api:app --host 0.0.0.0 --port 5000 &
 
 ## License
 
-MIT
+This project is licensed under the [Mozilla Public License 2.0](LICENSE).
+
+**What this means:**
+- You can use, modify, and distribute this software
+- Modifications to existing files must be open-sourced under MPL 2.0
+- New files (plugins, addons, extensions) can use any license, including proprietary
+- Commercial addons are allowed
 
 ## Contributing
 
