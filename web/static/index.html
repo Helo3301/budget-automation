@@ -1,0 +1,2553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget Automation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="manifest" href="/static/manifest.json">
+    <style>
+        [x-cloak] { display: none !important; }
+        .tab-active { border-bottom: 2px solid #60a5fa; color: #60a5fa; }
+        .loading { animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        /* Chat widget transitions */
+        .chat-widget {
+            transition: all 0.3s ease-in-out;
+        }
+        .chat-widget.minimized {
+            width: 60px;
+            height: 60px;
+        }
+        .chat-widget.expanded {
+            width: 420px;
+            height: 600px;
+            max-height: calc(100vh - 100px);
+        }
+        /* Dark scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen text-gray-100" x-data="app()" x-init="init()">
+    <!-- Header -->
+    <header class="bg-gray-800 shadow-lg border-b border-gray-700 sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 py-3">
+            <div class="flex justify-between items-center">
+                <h1 class="text-xl font-bold text-gray-100">Budget Automation</h1>
+                <div class="flex items-center space-x-2">
+                    <span x-show="offline" class="text-xs bg-yellow-900 text-yellow-200 px-2 py-1 rounded">Offline</span>
+                    <button @click="showImport = true" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                        Import CSV
+                    </button>
+                </div>
+            </div>
+            <!-- Navigation Tabs (no Chat tab - it's now floating) -->
+            <nav class="flex space-x-4 mt-3 overflow-x-auto">
+                <button @click="tab = 'dashboard'" :class="tab === 'dashboard' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Dashboard
+                </button>
+                <button @click="tab = 'budget'; loadBudgetOverview()" :class="tab === 'budget' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Budget
+                </button>
+                <button @click="tab = 'analytics'; loadAnalytics()" :class="tab === 'analytics' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Analytics
+                </button>
+                <button @click="tab = 'subscriptions'" :class="tab === 'subscriptions' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap relative transition-colors">
+                    Subscriptions
+                    <span x-show="subscriptionsSummary.overdue_count > 0" x-text="subscriptionsSummary.overdue_count"
+                          class="absolute -top-1 -right-2 bg-red-500 text-white text-xs rounded-full px-1.5"></span>
+                </button>
+                <button @click="tab = 'goals'" :class="tab === 'goals' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Goals
+                </button>
+                <button @click="tab = 'transactions'" :class="tab === 'transactions' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Transactions
+                </button>
+                <button @click="tab = 'uncategorized'" :class="tab === 'uncategorized' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap relative transition-colors">
+                    Uncategorized
+                    <span x-show="summary.uncategorized > 0" x-text="summary.uncategorized"
+                          class="absolute -top-1 -right-2 bg-red-500 text-white text-xs rounded-full px-1.5"></span>
+                </button>
+                <button @click="tab = 'recurring'" :class="tab === 'recurring' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Recurring
+                </button>
+                <button @click="tab = 'anomalies'" :class="tab === 'anomalies' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Anomalies
+                </button>
+                <button @click="tab = 'search'" :class="tab === 'search' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Search
+                </button>
+                <button @click="tab = 'settings'" :class="tab === 'settings' ? 'tab-active' : ''"
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
+                    Settings
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6 pb-20">
+        <!-- Dashboard Tab -->
+        <div x-show="tab === 'dashboard'" x-cloak>
+            <!-- Reporting Center -->
+            <div class="bg-gradient-to-r from-gray-800 to-gray-900 rounded-xl shadow-xl border border-gray-700 mb-6 overflow-hidden"
+                 x-data="reportingCenter()" x-init="init()">
+                <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                        <h2 class="text-lg font-semibold text-gray-100">Reporting Center</h2>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="toggleAutoPlay()" class="p-1.5 rounded hover:bg-gray-700 transition-colors" :title="autoPlay ? 'Pause' : 'Play'">
+                            <svg x-show="autoPlay" class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                            </svg>
+                            <svg x-show="!autoPlay" class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                        </button>
+                        <span class="text-xs text-gray-500" x-text="(currentSlide + 1) + ' / ' + slides.length"></span>
+                    </div>
+                </div>
+
+                <!-- Slides Container -->
+                <div class="relative min-h-[200px] overflow-hidden">
+                    <!-- Slide Content - using absolute positioning for smooth crossfade -->
+                    <template x-for="(slide, index) in slides" :key="index">
+                        <div x-show="currentSlide === index"
+                             x-transition:enter="transition-opacity ease-out duration-500"
+                             x-transition:enter-start="opacity-0"
+                             x-transition:enter-end="opacity-100"
+                             x-transition:leave="transition-opacity ease-in duration-300 absolute inset-0"
+                             x-transition:leave-start="opacity-100"
+                             x-transition:leave-end="opacity-0"
+                             class="px-6 py-5 cursor-pointer hover:bg-gray-800 hover:bg-opacity-30 transition-colors"
+                             @click="slide.action && slide.action()">
+
+                            <!-- Icon and Type Badge -->
+                            <div class="flex items-center gap-3 mb-3">
+                                <div class="p-2 rounded-lg" :class="slide.iconBg || 'bg-blue-900'">
+                                    <svg class="w-6 h-6" :class="slide.iconColor || 'text-blue-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="slide.icon"></path>
+                                    </svg>
+                                </div>
+                                <span class="text-xs font-medium px-2 py-0.5 rounded-full" :class="slide.badgeClass || 'bg-gray-700 text-gray-300'" x-text="slide.type"></span>
+                            </div>
+
+                            <!-- Main Content -->
+                            <h3 class="text-xl font-bold text-gray-100 mb-2" x-text="slide.title"></h3>
+                            <p class="text-gray-400 text-sm mb-3" x-text="slide.description"></p>
+
+                            <!-- Metric/Value Display -->
+                            <div x-show="slide.value !== undefined" class="flex items-baseline gap-2">
+                                <span class="text-3xl font-bold" :class="slide.valueClass || 'text-white'" x-text="slide.value"></span>
+                                <span x-show="slide.subValue" class="text-sm text-gray-500" x-text="slide.subValue"></span>
+                            </div>
+
+                            <!-- Progress Bar (optional) -->
+                            <div x-show="slide.progress !== undefined" class="mt-3">
+                                <div class="w-full bg-gray-700 rounded-full h-2">
+                                    <div class="h-2 rounded-full transition-all duration-500"
+                                         :class="slide.progressClass || 'bg-blue-500'"
+                                         :style="'width: ' + Math.min(100, slide.progress) + '%'"></div>
+                                </div>
+                            </div>
+
+                            <!-- Action hint -->
+                            <div x-show="slide.actionText" class="mt-4 flex items-center gap-1 text-sm text-blue-400">
+                                <span x-text="slide.actionText"></span>
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                                </svg>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Navigation Controls -->
+                <div class="px-4 pb-4 flex items-center justify-between">
+                    <!-- Previous Button -->
+                    <button @click="prevSlide()"
+                            class="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                    </button>
+
+                    <!-- Dot Navigation -->
+                    <div class="flex justify-center gap-2">
+                        <template x-for="(slide, index) in slides" :key="'dot-'+index">
+                            <button @click="goToSlide(index)"
+                                    class="h-2 rounded-full transition-all duration-300"
+                                    :class="currentSlide === index ? 'bg-blue-500 w-6' : 'bg-gray-600 hover:bg-gray-500 w-2'">
+                            </button>
+                        </template>
+                    </div>
+
+                    <!-- Next Button -->
+                    <button @click="nextSlide()"
+                            class="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <div class="text-sm text-gray-400">Total Transactions</div>
+                    <div class="text-2xl font-bold text-gray-100" x-text="summary.total_transactions || 0"></div>
+                </div>
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <div class="text-sm text-gray-400">Total Income</div>
+                    <div class="text-2xl font-bold text-green-400" x-text="formatCurrency(summary.total_income || 0)"></div>
+                </div>
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <div class="text-sm text-gray-400">Total Expenses</div>
+                    <div class="text-2xl font-bold text-red-400" x-text="formatCurrency(summary.total_expenses || 0)"></div>
+                </div>
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <div class="text-sm text-gray-400">Net</div>
+                    <div class="text-2xl font-bold" :class="(summary.net || 0) >= 0 ? 'text-green-400' : 'text-red-400'"
+                         x-text="formatCurrency(summary.net || 0)"></div>
+                </div>
+            </div>
+
+            <!-- Account Balances -->
+            <div x-show="accounts.length > 0" class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-100">Account Balances</h2>
+                    <div class="flex items-center gap-4">
+                        <div class="text-right">
+                            <div class="text-xs text-gray-500">Net Worth</div>
+                            <div class="text-lg font-bold" :class="getNetWorth() >= 0 ? 'text-green-400' : 'text-red-400'"
+                                 x-text="formatCurrency(getNetWorth())"></div>
+                        </div>
+                        <button @click="tab = 'settings'" class="text-xs text-blue-400 hover:text-blue-300">
+                            Manage
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="account in accounts" :key="account.id">
+                        <div class="bg-gray-900 rounded-lg p-4 border border-gray-700 hover:border-gray-600 transition-colors">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                                         :style="'background-color: ' + (account.color || '#3B82F6') + '20'">
+                                        <svg class="w-5 h-5" :style="'color: ' + (account.color || '#3B82F6')" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="getAccountTypeIcon(account.account_type)"></path>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <div class="font-medium text-gray-200 text-sm" x-text="account.name"></div>
+                                        <div class="text-xs text-gray-500" x-text="account.institution || getAccountTypeLabel(account.account_type)"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <div class="text-xs text-gray-400" x-text="account.balance_label || 'Balance'"></div>
+                                <div class="text-xl font-bold"
+                                     :class="account.account_type === 'credit' ? 'text-orange-400' : (account.balance >= 0 ? 'text-green-400' : 'text-red-400')"
+                                     x-text="formatCurrency(account.balance || 0)"></div>
+                            </div>
+                            <!-- Credit card specific info -->
+                            <div x-show="account.account_type === 'credit'" class="mt-2 pt-2 border-t border-gray-700">
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-500">Limit:</span>
+                                    <span class="text-gray-400" x-text="formatCurrency(account.credit_limit || 0)"></span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-500">Available:</span>
+                                    <span class="text-green-400" x-text="formatCurrency(account.available_credit || 0)"></span>
+                                </div>
+                                <!-- Credit utilization bar -->
+                                <div class="mt-2">
+                                    <div class="w-full bg-gray-700 rounded-full h-1.5">
+                                        <div class="h-1.5 rounded-full transition-all duration-300"
+                                             :class="((account.balance || 0) / (account.credit_limit || 1) * 100) > 80 ? 'bg-red-500' : ((account.balance || 0) / (account.credit_limit || 1) * 100) > 50 ? 'bg-yellow-500' : 'bg-green-500'"
+                                             :style="'width: ' + Math.min(100, ((account.balance || 0) / (account.credit_limit || 1) * 100)) + '%'"></div>
+                                    </div>
+                                    <div class="text-xs text-gray-500 mt-1" x-text="Math.round(((account.balance || 0) / (account.credit_limit || 1) * 100)) + '% utilized'"></div>
+                                </div>
+                            </div>
+                            <!-- Last 4 digits -->
+                            <div x-show="account.last_four" class="mt-2 text-xs text-gray-600">
+                                ••••<span x-text="account.last_four"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Budget Overview -->
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4 mb-6">
+                <h2 class="text-lg font-semibold mb-4 text-gray-100">Budget Overview (This Month)</h2>
+                <div class="space-y-4">
+                    <template x-for="cat in categories.filter(c => c.budget_amount > 0)" :key="cat.id">
+                        <div class="border-b border-gray-700 pb-3 last:border-0 last:pb-0">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-medium text-gray-200" x-text="cat.name"></span>
+                                <span class="text-sm">
+                                    <span x-text="formatCurrency(cat.spent || 0)" :class="cat.budget_percent >= 100 ? 'text-red-400' : 'text-gray-300'"></span>
+                                    <span class="text-gray-500">/</span>
+                                    <span class="text-gray-400" x-text="formatCurrency(cat.budget_amount)"></span>
+                                </span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-3">
+                                <div class="h-3 rounded-full transition-all duration-300"
+                                     :class="cat.budget_percent >= 100 ? 'bg-red-500' : cat.budget_percent >= 80 ? 'bg-yellow-500' : 'bg-green-500'"
+                                     :style="'width: ' + Math.min(100, cat.budget_percent || 0) + '%'"></div>
+                            </div>
+                            <div class="flex justify-between text-xs mt-1">
+                                <span :class="cat.budget_percent >= 100 ? 'text-red-400' : cat.budget_percent >= 80 ? 'text-yellow-400' : 'text-green-400'"
+                                      x-text="(cat.budget_percent || 0).toFixed(0) + '% used'"></span>
+                                <span x-show="cat.budget_percent < 100" class="text-gray-500"
+                                      x-text="formatCurrency(cat.budget_amount - (cat.spent || 0)) + ' remaining'"></span>
+                                <span x-show="cat.budget_percent >= 100" class="text-red-400"
+                                      x-text="formatCurrency((cat.spent || 0) - cat.budget_amount) + ' over budget'"></span>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="categories.filter(c => c.budget_amount > 0).length === 0" class="text-gray-500 text-center py-4">
+                        No budgets set. <a @click="tab = 'settings'" class="text-blue-400 hover:underline cursor-pointer">Configure budgets in Settings</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category Breakdown -->
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                <h2 class="text-lg font-semibold mb-4 text-gray-100">Category Breakdown</h2>
+                <div class="space-y-2">
+                    <template x-for="(data, name) in summary.category_breakdown || {}" :key="name">
+                        <div class="flex items-center justify-between py-2 border-b border-gray-700 last:border-0">
+                            <div class="flex-1">
+                                <div class="font-medium text-gray-200" x-text="name"></div>
+                                <div class="text-sm text-gray-500" x-text="data.count + ' transactions'"></div>
+                            </div>
+                            <div class="text-right font-medium" :class="data.total < 0 ? 'text-red-400' : 'text-green-400'"
+                                 x-text="formatCurrency(data.total)"></div>
+                        </div>
+                    </template>
+                    <div x-show="Object.keys(summary.category_breakdown || {}).length === 0" class="text-gray-500 text-center py-4">
+                        No categorized transactions yet
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Budget Tab -->
+        <div x-show="tab === 'budget'" x-cloak>
+            <!-- Loading State -->
+            <div x-show="budgetLoading" class="flex items-center justify-center py-12">
+                <div class="text-center">
+                    <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                    <div class="text-gray-400">Loading budget overview...</div>
+                </div>
+            </div>
+
+            <!-- Budget Content -->
+            <div x-show="!budgetLoading && budgetOverview" class="space-y-6">
+                <!-- Header with Settings -->
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-gray-100">Budget Overview</h2>
+                    <button @click="openBudgetSettingsModal()" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        Settings
+                    </button>
+                </div>
+
+                <!-- Warnings/Alerts -->
+                <template x-if="budgetOverview?.warnings?.length > 0">
+                    <div class="space-y-2">
+                        <template x-for="warning in budgetOverview.warnings" :key="warning.message">
+                            <div :class="getWarningClass(warning.type)" class="border rounded-lg px-4 py-3 flex items-center gap-3">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                                <span x-text="warning.message"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Budget Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <!-- Monthly Income -->
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <div class="text-gray-400 text-sm mb-1">Monthly Income</div>
+                        <div class="text-2xl font-bold text-green-400" x-text="'$' + (budgetOverview?.income?.monthly || 0).toLocaleString()"></div>
+                        <div x-show="!budgetOverview?.income?.is_set" class="text-xs text-yellow-400 mt-1">Not set - click Settings</div>
+                    </div>
+
+                    <!-- Fixed Costs -->
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <div class="text-gray-400 text-sm mb-1">Fixed Costs (Bills)</div>
+                        <div class="text-2xl font-bold text-red-400" x-text="'$' + (budgetOverview?.fixed_costs?.total || 0).toLocaleString()"></div>
+                        <div class="text-xs text-gray-500 mt-1" x-text="(budgetOverview?.fixed_costs?.bills?.length || 0) + ' recurring bills'"></div>
+                    </div>
+
+                    <!-- Savings Target -->
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <div class="text-gray-400 text-sm mb-1">Savings Target</div>
+                        <div class="text-2xl font-bold text-blue-400" x-text="'$' + (budgetOverview?.savings?.target_amount || 0).toLocaleString()"></div>
+                        <div class="text-xs text-gray-500 mt-1" x-text="(budgetOverview?.savings?.target_percent || 0) + '% of income'"></div>
+                    </div>
+
+                    <!-- Discretionary Budget -->
+                    <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                        <div class="text-gray-400 text-sm mb-1">Discretionary Budget</div>
+                        <div class="text-2xl font-bold" :class="budgetOverview?.discretionary?.budget >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                             x-text="'$' + Math.abs(budgetOverview?.discretionary?.budget || 0).toLocaleString()"></div>
+                        <div class="text-xs mt-1" :class="budgetOverview?.discretionary?.budget >= 0 ? 'text-gray-500' : 'text-red-400'"
+                             x-text="budgetOverview?.discretionary?.budget >= 0 ? 'Available to spend' : 'Deficit - expenses exceed income'"></div>
+                    </div>
+                </div>
+
+                <!-- Budget Flow Visualization -->
+                <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                    <h3 class="text-lg font-semibold text-gray-100 mb-4">Money Flow</h3>
+                    <div class="flex items-center justify-between flex-wrap gap-4">
+                        <!-- Income -->
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-green-400" x-text="'$' + (budgetOverview?.income?.monthly || 0).toLocaleString()"></div>
+                            <div class="text-sm text-gray-400">Income</div>
+                        </div>
+
+                        <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
+                        </svg>
+
+                        <!-- Fixed Costs -->
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-red-400" x-text="'-$' + (budgetOverview?.fixed_costs?.total || 0).toLocaleString()"></div>
+                            <div class="text-sm text-gray-400">Fixed Costs</div>
+                        </div>
+
+                        <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
+                        </svg>
+
+                        <!-- Savings -->
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-blue-400" x-text="'-$' + (budgetOverview?.savings?.target_amount || 0).toLocaleString()"></div>
+                            <div class="text-sm text-gray-400">Savings</div>
+                        </div>
+
+                        <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
+                        </svg>
+
+                        <!-- Discretionary -->
+                        <div class="text-center">
+                            <div class="text-3xl font-bold" :class="budgetOverview?.discretionary?.budget >= 0 ? 'text-emerald-400' : 'text-red-400'"
+                                 x-text="'$' + Math.abs(budgetOverview?.discretionary?.budget || 0).toLocaleString()"></div>
+                            <div class="text-sm text-gray-400">Discretionary</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Discretionary Spending Progress -->
+                <div class="bg-gray-800 rounded-xl p-6 border border-gray-700" x-show="budgetOverview?.discretionary?.budget > 0">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-lg font-semibold text-gray-100">Discretionary Spending This Month</h3>
+                        <span class="text-sm" :class="getBudgetHealthClass(budgetOverview)" x-text="getBudgetHealthText(budgetOverview)"></span>
+                    </div>
+                    <div class="relative h-6 bg-gray-700 rounded-full overflow-hidden mb-2">
+                        <div class="absolute h-full rounded-full transition-all duration-500"
+                             :class="budgetOverview?.discretionary?.percent_used >= 100 ? 'bg-red-500' :
+                                     budgetOverview?.discretionary?.percent_used >= 80 ? 'bg-yellow-500' : 'bg-green-500'"
+                             :style="'width: ' + Math.min(100, budgetOverview?.discretionary?.percent_used || 0) + '%'"></div>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-400">Spent: <span class="text-white" x-text="'$' + (budgetOverview?.discretionary?.spent || 0).toLocaleString()"></span></span>
+                        <span class="text-gray-400">Remaining: <span :class="budgetOverview?.discretionary?.remaining >= 0 ? 'text-green-400' : 'text-red-400'"
+                                                                     x-text="'$' + Math.abs(budgetOverview?.discretionary?.remaining || 0).toLocaleString()"></span></span>
+                    </div>
+                </div>
+
+                <!-- Fixed Costs Breakdown -->
+                <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                    <h3 class="text-lg font-semibold text-gray-100 mb-4">Fixed Costs Breakdown</h3>
+                    <div x-show="budgetOverview?.fixed_costs?.bills?.length === 0" class="text-gray-400 text-center py-4">
+                        No recurring bills set up. Add bills in the Subscriptions tab.
+                    </div>
+                    <div x-show="budgetOverview?.fixed_costs?.bills?.length > 0" class="space-y-3">
+                        <template x-for="bill in budgetOverview?.fixed_costs?.bills || []" :key="bill.id">
+                            <div class="flex justify-between items-center py-2 border-b border-gray-700 last:border-0">
+                                <div>
+                                    <div class="font-medium text-gray-200" x-text="bill.name"></div>
+                                    <div class="text-xs text-gray-500" x-text="bill.frequency + ' - $' + bill.amount.toFixed(2)"></div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="font-medium text-red-400" x-text="'$' + bill.monthly_equivalent.toFixed(2) + '/mo'"></div>
+                                    <div class="text-xs text-gray-500" x-text="bill.category_name || 'Uncategorized'"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Budget Summary -->
+                <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+                    <h3 class="text-lg font-semibold text-gray-100 mb-4">Monthly Summary</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between py-1">
+                            <span class="text-gray-400">Total Income</span>
+                            <span class="text-green-400 font-medium" x-text="'$' + (budgetOverview?.summary?.total_income || 0).toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between py-1">
+                            <span class="text-gray-400">Total Fixed Costs</span>
+                            <span class="text-red-400 font-medium" x-text="'-$' + (budgetOverview?.summary?.total_fixed || 0).toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between py-1">
+                            <span class="text-gray-400">Savings Target</span>
+                            <span class="text-blue-400 font-medium" x-text="'-$' + (budgetOverview?.summary?.total_savings_target || 0).toLocaleString()"></span>
+                        </div>
+                        <div class="border-t border-gray-600 my-2"></div>
+                        <div class="flex justify-between py-1">
+                            <span class="text-gray-400">Discretionary Budget</span>
+                            <span :class="(budgetOverview?.summary?.total_discretionary || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'" class="font-medium"
+                                  x-text="'$' + (budgetOverview?.summary?.total_discretionary || 0).toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between py-1">
+                            <span class="text-gray-400">Actual Discretionary Spent</span>
+                            <span class="text-gray-200 font-medium" x-text="'$' + (budgetOverview?.summary?.total_spent || 0).toLocaleString()"></span>
+                        </div>
+                        <div class="border-t border-gray-600 my-2"></div>
+                        <div class="flex justify-between py-1 text-base">
+                            <span class="text-gray-200 font-semibold">Net Remaining</span>
+                            <span :class="(budgetOverview?.summary?.net_remaining || 0) >= 0 ? 'text-green-400' : 'text-red-400'" class="font-bold"
+                                  x-text="'$' + (budgetOverview?.summary?.net_remaining || 0).toLocaleString()"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Budget Settings Modal -->
+        <div x-show="showBudgetSettingsModal" x-cloak
+             class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+             @click.self="closeBudgetSettingsModal()">
+            <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 border border-gray-700">
+                <h3 class="text-lg font-semibold text-gray-100 mb-4">Budget Settings</h3>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Monthly Take-Home Income</label>
+                        <input type="number" x-model="budgetSettings.monthly_income" step="0.01" min="0"
+                               class="w-full bg-gray-700 text-white rounded-lg px-4 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none">
+                        <p class="text-xs text-gray-500 mt-1">Your monthly income after taxes</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Savings Target (%)</label>
+                        <input type="number" x-model="budgetSettings.savings_target_percent" step="1" min="0" max="100"
+                               class="w-full bg-gray-700 text-white rounded-lg px-4 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none">
+                        <p class="text-xs text-gray-500 mt-1">Percentage of income to save each month</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Discretionary Warning Threshold (%)</label>
+                        <input type="number" x-model="budgetSettings.discretionary_warning_percent" step="5" min="0" max="100"
+                               class="w-full bg-gray-700 text-white rounded-lg px-4 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none">
+                        <p class="text-xs text-gray-500 mt-1">Warn when discretionary spending exceeds this % of budget</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Emergency Fund Target (Months)</label>
+                        <input type="number" x-model="budgetSettings.emergency_fund_months" step="1" min="1" max="24"
+                               class="w-full bg-gray-700 text-white rounded-lg px-4 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none">
+                        <p class="text-xs text-gray-500 mt-1">Target months of expenses for emergency fund</p>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-6">
+                    <button @click="closeBudgetSettingsModal()" class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                        Cancel
+                    </button>
+                    <button @click="saveBudgetSettings()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors">
+                        Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Tab -->
+        <div x-show="tab === 'analytics'" x-cloak>
+            <!-- Loading State -->
+            <div x-show="analyticsLoading" class="flex items-center justify-center py-12">
+                <div class="text-center">
+                    <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                    <div class="text-gray-400">Loading analytics...</div>
+                </div>
+            </div>
+
+            <!-- Analytics Content -->
+            <div x-show="!analyticsLoading" class="space-y-6">
+                <!-- Time Range Selector -->
+                <div class="flex justify-end">
+                    <select x-model="analyticsTimeRange" @change="loadAnalytics()"
+                            class="bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <option value="3">Last 3 months</option>
+                        <option value="6">Last 6 months</option>
+                        <option value="12">Last 12 months</option>
+                        <option value="24">Last 2 years</option>
+                    </select>
+                </div>
+
+                <!-- Top Row: Monthly + Category -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Monthly Income vs Expenses -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="h-80">
+                            <canvas id="chart-monthly"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Category Breakdown -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="h-80">
+                            <canvas id="chart-category"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Spending Trend -->
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <div class="h-64">
+                        <canvas id="chart-daily"></canvas>
+                    </div>
+                </div>
+
+                <!-- Bottom Row: Merchants + Weekday -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Top Merchants -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="h-80">
+                            <canvas id="chart-merchants"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Spending by Day of Week -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="h-80">
+                            <canvas id="chart-weekday"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary Stats -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="text-sm text-gray-400">Total Income</div>
+                        <div class="text-xl font-bold text-green-400"
+                             x-text="formatCurrency(analyticsData.monthly.reduce((sum, m) => sum + m.income, 0))"></div>
+                        <div class="text-xs text-gray-500" x-text="analyticsTimeRange + ' months'"></div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="text-sm text-gray-400">Total Expenses</div>
+                        <div class="text-xl font-bold text-red-400"
+                             x-text="formatCurrency(analyticsData.monthly.reduce((sum, m) => sum + m.expenses, 0))"></div>
+                        <div class="text-xs text-gray-500" x-text="analyticsTimeRange + ' months'"></div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="text-sm text-gray-400">Avg Monthly Spending</div>
+                        <div class="text-xl font-bold text-blue-400"
+                             x-text="formatCurrency(analyticsData.monthly.length ? analyticsData.monthly.reduce((sum, m) => sum + m.expenses, 0) / analyticsData.monthly.length : 0)"></div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                        <div class="text-sm text-gray-400">Net Savings</div>
+                        <div class="text-xl font-bold"
+                             :class="(analyticsData.monthly.reduce((sum, m) => sum + m.income - m.expenses, 0)) >= 0 ? 'text-green-400' : 'text-red-400'"
+                             x-text="formatCurrency(analyticsData.monthly.reduce((sum, m) => sum + m.income - m.expenses, 0))"></div>
+                        <div class="text-xs text-gray-500" x-text="analyticsTimeRange + ' months'"></div>
+                    </div>
+                </div>
+
+                <!-- No Data Message -->
+                <div x-show="!analyticsData.monthly.length && !analyticsData.categories.length"
+                     class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-8 text-center">
+                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <h3 class="text-lg font-medium text-gray-300 mb-2">No Data Available</h3>
+                    <p class="text-gray-500">Import some transactions to see your analytics and spending trends.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Subscriptions Tab -->
+        <div x-show="tab === 'subscriptions'" x-cloak>
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Active</div>
+                    <div class="text-2xl font-bold text-white" x-text="subscriptionsSummary.active_count || 0"></div>
+                    <div class="text-gray-500 text-sm">subscriptions</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Monthly Cost</div>
+                    <div class="text-2xl font-bold text-blue-400" x-text="'$' + (subscriptionsSummary.monthly_total || 0).toFixed(2)"></div>
+                    <div class="text-gray-500 text-sm">estimated</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Overdue</div>
+                    <div class="text-2xl font-bold" :class="subscriptionsSummary.overdue_count > 0 ? 'text-red-400' : 'text-green-400'" x-text="subscriptionsSummary.overdue_count || 0"></div>
+                    <div class="text-gray-500 text-sm">payments</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Due Soon</div>
+                    <div class="text-2xl font-bold text-yellow-400" x-text="subscriptionsSummary.upcoming_count || 0"></div>
+                    <div class="text-gray-500 text-sm">next 7 days</div>
+                </div>
+            </div>
+
+            <!-- Bills Due Soon Alert -->
+            <div x-show="billsDueSoon.length > 0" class="mb-6 bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <div class="px-4 py-3 bg-yellow-600/20 border-b border-gray-700 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <span class="font-medium text-yellow-200">Bills Due Soon</span>
+                    <span class="text-yellow-400 text-sm">(<span x-text="billsDueSoon.length"></span> upcoming)</span>
+                </div>
+                <div class="divide-y divide-gray-700">
+                    <template x-for="bill in billsDueSoon" :key="bill.id">
+                        <div class="px-4 py-3 flex items-center justify-between hover:bg-gray-700/30 transition-colors">
+                            <div class="flex items-center gap-4">
+                                <span class="px-2 py-1 text-xs rounded-full font-medium"
+                                      :class="getBillStatusClass(bill.status)"
+                                      x-text="getBillStatusLabel(bill)"></span>
+                                <div>
+                                    <div class="font-medium text-gray-200" x-text="bill.name"></div>
+                                    <div class="text-xs text-gray-500">
+                                        Due: <span x-text="new Date(bill.next_due_date).toLocaleDateString()"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="font-medium text-red-400" x-text="'$' + Math.abs(bill.amount).toFixed(2)"></span>
+                                <button @click="openPaymentModal(bill)"
+                                        class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
+                                    Pay Now
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Add Subscription Button -->
+            <div class="flex justify-end mb-4">
+                <button @click="openAddSubscription()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Add Subscription
+                </button>
+            </div>
+
+            <!-- Subscriptions List -->
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700">
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-700/50 text-gray-400 text-xs uppercase tracking-wider">
+                            <tr>
+                                <th class="px-4 py-3 text-left">Name</th>
+                                <th class="px-4 py-3 text-left">Amount</th>
+                                <th class="px-4 py-3 text-left">Frequency</th>
+                                <th class="px-4 py-3 text-left">Category</th>
+                                <th class="px-4 py-3 text-left">Next Due</th>
+                                <th class="px-4 py-3 text-left">Status</th>
+                                <th class="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700">
+                            <template x-for="sub in subscriptions" :key="sub.id">
+                                <tr class="hover:bg-gray-700/30 transition-colors" :class="!sub.is_active && 'opacity-50'">
+                                    <td class="px-4 py-3">
+                                        <div class="font-medium text-gray-200" x-text="sub.name"></div>
+                                        <div class="text-xs text-gray-500" x-text="sub.merchant || ''"></div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="font-medium text-red-400" x-text="'$' + sub.amount.toFixed(2)"></span>
+                                        <div class="text-xs text-gray-500" x-text="'~$' + getMonthlyEquivalent(sub.amount, sub.frequency).toFixed(2) + '/mo'"></div>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-gray-300 capitalize" x-text="getFrequencyLabel(sub.frequency)"></span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-gray-400" x-text="categories.find(c => c.id === sub.category_id)?.name || '-'"></span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-gray-300" x-text="sub.next_due_date ? new Date(sub.next_due_date).toLocaleDateString() : '-'"></span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <span class="px-2 py-1 text-xs rounded-full font-medium"
+                                              :class="getSubscriptionStatus(sub).class"
+                                              x-text="getSubscriptionStatus(sub).label">
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <div class="flex items-center justify-end gap-1">
+                                            <button x-show="sub.is_active" @click="openPaymentModal(sub)"
+                                                    class="p-1.5 text-green-400 hover:bg-green-400/20 rounded transition-colors" title="Mark Paid">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                                </svg>
+                                            </button>
+                                            <button @click="openPaymentHistoryModal(sub)"
+                                                    class="p-1.5 text-purple-400 hover:bg-purple-400/20 rounded transition-colors" title="Payment History">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                            </button>
+                                            <button @click="openEditSubscription(sub)"
+                                                    class="p-1.5 text-blue-400 hover:bg-blue-400/20 rounded transition-colors" title="Edit">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                </svg>
+                                            </button>
+                                            <button @click="toggleSubscriptionActive(sub)"
+                                                    class="p-1.5 hover:bg-gray-600/50 rounded transition-colors"
+                                                    :class="sub.is_active ? 'text-yellow-400' : 'text-green-400'"
+                                                    :title="sub.is_active ? 'Pause' : 'Resume'">
+                                                <svg x-show="sub.is_active" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                                <svg x-show="!sub.is_active" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                            </button>
+                                            <button @click="deleteSubscription(sub.id)"
+                                                    class="p-1.5 text-red-400 hover:bg-red-400/20 rounded transition-colors" title="Delete">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty State -->
+                <div x-show="subscriptions.length === 0" class="p-8 text-center">
+                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                    </svg>
+                    <h3 class="text-lg font-medium text-gray-300 mb-2">No Subscriptions Yet</h3>
+                    <p class="text-gray-500 mb-4">Track your recurring bills and subscriptions to stay on top of your monthly expenses.</p>
+                    <button @click="openAddSubscription()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                        Add Your First Subscription
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Subscription Modal -->
+        <div x-show="showSubscriptionModal" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closeSubscriptionModal()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-md mx-4">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h3 class="text-lg font-semibold text-gray-200" x-text="editingSubscription ? 'Edit Subscription' : 'Add Subscription'"></h3>
+                    <button @click="closeSubscriptionModal()" class="text-gray-400 hover:text-gray-200">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <form @submit.prevent="saveSubscription()" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Name *</label>
+                        <input type="text" x-model="newSubName" required
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="e.g., Netflix, Spotify">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Merchant</label>
+                        <input type="text" x-model="newSubMerchant"
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="e.g., Netflix Inc">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Amount *</label>
+                            <input type="number" step="0.01" min="0" x-model.number="newSubAmount" required
+                                   class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="0.00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Frequency</label>
+                            <select x-model="newSubFrequency"
+                                    class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="biweekly">Bi-weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="quarterly">Quarterly</option>
+                                <option value="yearly">Yearly</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Start Date *</label>
+                        <input type="date" x-model="newSubStartDate" required
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                            <select x-model="newSubCategoryId"
+                                    class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option :value="null">None</option>
+                                <template x-for="cat in categories" :key="cat.id">
+                                    <option :value="cat.id" x-text="cat.name"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Account</label>
+                            <select x-model="newSubAccountId"
+                                    class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option :value="null">None</option>
+                                <template x-for="acc in accounts" :key="acc.id">
+                                    <option :value="acc.id" x-text="acc.name"></option>
+                                </template>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Notes</label>
+                        <textarea x-model="newSubNotes" rows="2"
+                                  class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                                  placeholder="Optional notes..."></textarea>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" @click="closeSubscriptionModal()"
+                                class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+                            <span x-text="editingSubscription ? 'Save Changes' : 'Add Subscription'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Payment Modal -->
+        <div x-show="showPaymentModal" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closePaymentModal()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-md mx-4">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-200">Record Payment</h3>
+                        <p class="text-sm text-gray-400" x-text="paymentSubscription?.name"></p>
+                    </div>
+                    <button @click="closePaymentModal()" class="text-gray-400 hover:text-gray-200">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <form @submit.prevent="submitPayment()" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Amount Paid</label>
+                        <div class="relative">
+                            <span class="absolute left-3 top-2 text-gray-400">$</span>
+                            <input type="number" step="0.01" min="0" x-model="paymentForm.amount_paid"
+                                   class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg pl-7 pr-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="0.00">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Payment Method</label>
+                        <select x-model="paymentForm.payment_method"
+                                class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Select method...</option>
+                            <option value="checking">Checking Account</option>
+                            <option value="savings">Savings Account</option>
+                            <option value="credit_card">Credit Card</option>
+                            <option value="debit_card">Debit Card</option>
+                            <option value="autopay">Auto-Pay</option>
+                            <option value="cash">Cash</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Confirmation Number</label>
+                        <input type="text" x-model="paymentForm.confirmation_number"
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                               placeholder="Optional">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Notes</label>
+                        <textarea x-model="paymentForm.notes" rows="2"
+                                  class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                                  placeholder="Optional notes..."></textarea>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" @click="closePaymentModal()"
+                                class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors">
+                            Record Payment
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Payment History Modal -->
+        <div x-show="showPaymentHistoryModal" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closePaymentHistoryModal()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-200">Payment History</h3>
+                        <p class="text-sm text-gray-400" x-text="paymentHistorySubscription?.name"></p>
+                    </div>
+                    <button @click="closePaymentHistoryModal()" class="text-gray-400 hover:text-gray-200">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto">
+                    <div x-show="paymentHistory.length === 0" class="p-8 text-center">
+                        <svg class="w-12 h-12 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                        <p class="text-gray-400">No payment history yet</p>
+                    </div>
+                    <table x-show="paymentHistory.length > 0" class="w-full">
+                        <thead class="bg-gray-700/50 text-gray-400 text-xs uppercase tracking-wider sticky top-0">
+                            <tr>
+                                <th class="px-4 py-3 text-left">Paid Date</th>
+                                <th class="px-4 py-3 text-left">Due Date</th>
+                                <th class="px-4 py-3 text-left">Amount</th>
+                                <th class="px-4 py-3 text-left">Method</th>
+                                <th class="px-4 py-3 text-left">Confirmation</th>
+                                <th class="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700">
+                            <template x-for="payment in paymentHistory" :key="payment.id">
+                                <tr class="hover:bg-gray-700/30 transition-colors">
+                                    <td class="px-4 py-3 text-gray-200" x-text="new Date(payment.paid_date).toLocaleDateString()"></td>
+                                    <td class="px-4 py-3 text-gray-400" x-text="new Date(payment.due_date).toLocaleDateString()"></td>
+                                    <td class="px-4 py-3 text-green-400 font-medium" x-text="'$' + payment.amount_paid.toFixed(2)"></td>
+                                    <td class="px-4 py-3 text-gray-400 capitalize" x-text="payment.payment_method?.replace('_', ' ') || '-'"></td>
+                                    <td class="px-4 py-3">
+                                        <span class="text-gray-400 text-sm" x-text="payment.confirmation_number || '-'"></span>
+                                        <div x-show="payment.notes" class="text-xs text-gray-500" x-text="payment.notes"></div>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <button @click="deletePaymentRecord(payment.id)"
+                                                class="p-1.5 text-red-400 hover:bg-red-400/20 rounded transition-colors" title="Delete">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                            </svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-4 border-t border-gray-700 flex justify-end">
+                    <button @click="closePaymentHistoryModal()"
+                            class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Split Transaction Modal -->
+        <div x-show="showSplitModal" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closeSplitModal()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-200">Split Transaction</h3>
+                        <template x-if="splittingTransaction">
+                            <div class="text-sm text-gray-400 mt-1">
+                                <span x-text="splittingTransaction.merchant"></span>
+                                <span class="text-red-400 font-medium ml-2" x-text="formatCurrency(splittingTransaction.amount)"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <button @click="closeSplitModal()" class="text-gray-500 hover:text-gray-300">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="p-4">
+                    <!-- Remaining Amount Indicator -->
+                    <div class="mb-4 p-3 rounded-lg" :class="splitRemaining === 0 ? 'bg-green-900/30 border border-green-700' : 'bg-yellow-900/30 border border-yellow-700'">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm" :class="splitRemaining === 0 ? 'text-green-400' : 'text-yellow-400'">Remaining to allocate:</span>
+                            <span class="font-bold" :class="splitRemaining === 0 ? 'text-green-400' : 'text-yellow-400'" x-text="formatCurrency(splitRemaining)"></span>
+                        </div>
+                        <div x-show="splitRemaining !== 0" class="text-xs text-yellow-500 mt-1">
+                            Split amounts must equal the transaction total
+                        </div>
+                    </div>
+
+                    <!-- Split Rows -->
+                    <div class="space-y-3">
+                        <template x-for="(split, index) in splits" :key="index">
+                            <div class="p-3 bg-gray-700/50 rounded-lg border border-gray-600">
+                                <div class="flex gap-2 items-start">
+                                    <div class="flex-1">
+                                        <label class="block text-xs text-gray-400 mb-1">Category</label>
+                                        <select x-model="split.category_id" @change="updateSplitRemaining()"
+                                                class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1.5 text-sm focus:ring-purple-500 focus:border-purple-500">
+                                            <option :value="null">Select category...</option>
+                                            <template x-for="cat in categories" :key="cat.id">
+                                                <option :value="cat.id" x-text="cat.name"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="w-28">
+                                        <label class="block text-xs text-gray-400 mb-1">Amount</label>
+                                        <input type="number" step="0.01" x-model.number="split.amount" @input="updateSplitRemaining()"
+                                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1.5 text-sm focus:ring-purple-500 focus:border-purple-500"
+                                               placeholder="0.00">
+                                    </div>
+                                    <button @click="removeSplit(index)" x-show="splits.length > 2"
+                                            class="mt-5 p-1.5 text-red-400 hover:bg-red-400/20 rounded transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="mt-2">
+                                    <input type="text" x-model="split.description"
+                                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1.5 text-sm focus:ring-purple-500 focus:border-purple-500"
+                                           placeholder="Description (optional)">
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Add Split Button -->
+                    <button @click="addSplit()"
+                            class="mt-3 w-full py-2 border-2 border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-purple-500 hover:text-purple-400 transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                        Add Another Split
+                    </button>
+
+                    <!-- Auto-fill Button -->
+                    <button @click="autoFillLastSplit()" x-show="splitRemaining !== 0 && splits.length > 0"
+                            class="mt-2 w-full py-2 text-sm text-purple-400 hover:text-purple-300 transition-colors">
+                        Auto-fill remaining amount to last split
+                    </button>
+
+                    <!-- Unsplit Button (for already split transactions) -->
+                    <template x-if="splittingTransaction && splittingTransaction.is_split">
+                        <button @click="unsplitTransaction(splittingTransaction.id)"
+                                class="mt-3 w-full py-2 bg-red-900/30 border border-red-700 rounded-lg text-red-400 hover:bg-red-900/50 transition-colors flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Remove Split (Restore Original)
+                        </button>
+                    </template>
+                </div>
+                <div class="p-4 border-t border-gray-700 flex justify-end gap-2">
+                    <button @click="closeSplitModal()"
+                            class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                        Cancel
+                    </button>
+                    <button @click="saveSplits()" :disabled="splitRemaining !== 0"
+                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors">
+                        Save Splits
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import Wizard Modal -->
+        <div x-show="showImportWizard" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closeImportWizard()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-3xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+                <!-- Header with Steps -->
+                <div class="p-4 border-b border-gray-700">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-200">Import Transactions</h3>
+                        <button @click="closeImportWizard()" class="text-gray-500 hover:text-gray-300">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <!-- Step Indicators -->
+                    <div class="flex items-center justify-center gap-2">
+                        <template x-for="step in [1,2,3,4]" :key="step">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors"
+                                     :class="importStep === step ? 'bg-green-600 text-white' : (importStep > step ? 'bg-green-900/50 text-green-400' : 'bg-gray-700 text-gray-400')">
+                                    <span x-show="importStep <= step" x-text="step"></span>
+                                    <svg x-show="importStep > step" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </div>
+                                <div x-show="step < 4" class="w-12 h-0.5 mx-1" :class="importStep > step ? 'bg-green-600' : 'bg-gray-700'"></div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="flex justify-center gap-8 mt-2 text-xs text-gray-500">
+                        <span>Upload</span>
+                        <span>Map</span>
+                        <span>Preview</span>
+                        <span>Import</span>
+                    </div>
+                </div>
+
+                <!-- Content Area -->
+                <div class="flex-1 overflow-y-auto p-4">
+                    <!-- Step 1: Upload -->
+                    <div x-show="importStep === 1">
+                        <div class="flex flex-col items-center justify-center py-12">
+                            <div class="w-24 h-24 bg-green-900/30 rounded-full flex items-center justify-center mb-4">
+                                <svg class="w-12 h-12 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                </svg>
+                            </div>
+                            <h4 class="text-lg font-medium text-gray-200 mb-2">Upload your bank statement</h4>
+                            <p class="text-gray-400 text-sm mb-6 text-center max-w-md">
+                                Supports CSV and Excel files. We'll automatically detect columns and help you map them.
+                            </p>
+                            <label class="cursor-pointer">
+                                <div class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                                    </svg>
+                                    <span x-text="importLoading ? 'Processing...' : 'Choose File'"></span>
+                                </div>
+                                <input type="file" class="hidden" accept=".csv,.xlsx,.xls" @change="handleImportFile($event)" :disabled="importLoading">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Column Mapping -->
+                    <div x-show="importStep === 2">
+                        <div class="mb-4">
+                            <div class="text-sm text-gray-400 mb-1">File:</div>
+                            <div class="text-green-400 font-medium" x-text="importFilename"></div>
+                            <div class="text-xs text-gray-500" x-text="importTotalRows + ' rows detected'"></div>
+                        </div>
+
+                        <h4 class="text-md font-medium text-gray-200 mb-3">Map your columns</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Date Column <span class="text-red-400">*</span></label>
+                                <select x-model="importMapping.date_column"
+                                        class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 text-sm">
+                                    <option value="">Select column...</option>
+                                    <template x-for="col in importColumns" :key="col">
+                                        <option :value="col" x-text="col"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Amount Column <span class="text-red-400">*</span></label>
+                                <select x-model="importMapping.amount_column"
+                                        class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 text-sm">
+                                    <option value="">Select column...</option>
+                                    <template x-for="col in importColumns" :key="col">
+                                        <option :value="col" x-text="col"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Merchant Column <span class="text-red-400">*</span></label>
+                                <select x-model="importMapping.merchant_column"
+                                        class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 text-sm">
+                                    <option value="">Select column...</option>
+                                    <template x-for="col in importColumns" :key="col">
+                                        <option :value="col" x-text="col"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Description Column</label>
+                                <select x-model="importMapping.description_column"
+                                        class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 text-sm">
+                                    <option value="">None</option>
+                                    <template x-for="col in importColumns" :key="col">
+                                        <option :value="col" x-text="col"></option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Import to Account</label>
+                                <select x-model="importAccountId"
+                                        class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 text-sm">
+                                    <option :value="null">No account</option>
+                                    <template x-for="acc in accounts" :key="acc.id">
+                                        <option :value="acc.id" x-text="acc.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="flex items-end">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" x-model="importAutoCategorize" class="rounded bg-gray-700 border-gray-600 text-green-600 focus:ring-green-500">
+                                    <span class="text-sm text-gray-300">Auto-categorize transactions</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Sample Data Preview -->
+                        <h4 class="text-md font-medium text-gray-200 mt-6 mb-3">Sample Data</h4>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-700">
+                                        <template x-for="col in importColumns" :key="col">
+                                            <th class="px-2 py-1 text-left text-gray-400 font-medium" x-text="col"></th>
+                                        </template>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(row, idx) in importSampleRows.slice(0, 3)" :key="idx">
+                                        <tr class="border-b border-gray-700/50">
+                                            <template x-for="col in importColumns" :key="col">
+                                                <td class="px-2 py-1 text-gray-300 truncate max-w-[150px]" x-text="row[col]"></td>
+                                            </template>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Preview -->
+                    <div x-show="importStep === 3">
+                        <h4 class="text-md font-medium text-gray-200 mb-3">Preview Parsed Transactions</h4>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b border-gray-700">
+                                        <th class="px-3 py-2 text-left text-gray-400 font-medium">Date</th>
+                                        <th class="px-3 py-2 text-left text-gray-400 font-medium">Merchant</th>
+                                        <th class="px-3 py-2 text-right text-gray-400 font-medium">Amount</th>
+                                        <th class="px-3 py-2 text-left text-gray-400 font-medium">Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(row, idx) in importSampleRows.slice(0, 10)" :key="idx">
+                                        <tr class="border-b border-gray-700/50">
+                                            <td class="px-3 py-2 text-gray-300" x-text="getPreviewValue(row, 'date')"></td>
+                                            <td class="px-3 py-2 text-gray-300" x-text="getPreviewValue(row, 'merchant')"></td>
+                                            <td class="px-3 py-2 text-gray-300 text-right" x-text="getPreviewValue(row, 'amount')"></td>
+                                            <td class="px-3 py-2 text-gray-300 truncate max-w-[200px]" x-text="getPreviewValue(row, 'description')"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-4 p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center gap-2 text-gray-300">
+                                <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <span>Ready to import <strong x-text="importTotalRows"></strong> transactions</span>
+                                <span x-show="importAutoCategorize" class="text-xs text-green-400">(with auto-categorization)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Importing / Results -->
+                    <div x-show="importStep === 4">
+                        <!-- Loading -->
+                        <div x-show="importLoading" class="flex flex-col items-center justify-center py-12">
+                            <div class="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                            <p class="text-gray-300">Importing transactions...</p>
+                        </div>
+
+                        <!-- Results -->
+                        <div x-show="!importLoading && importResult">
+                            <div class="flex flex-col items-center justify-center py-8">
+                                <div x-show="importResult.success" class="w-16 h-16 bg-green-900/30 rounded-full flex items-center justify-center mb-4">
+                                    <svg class="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </div>
+                                <h4 x-show="importResult.success" class="text-lg font-medium text-green-400 mb-2">Import Complete!</h4>
+                                <div x-show="importResult.success" class="text-center text-gray-300">
+                                    <p><strong x-text="importResult.imported"></strong> transactions imported</p>
+                                    <p x-show="importResult.duplicates > 0" class="text-yellow-400 text-sm mt-1">
+                                        <span x-text="importResult.duplicates"></span> duplicates skipped
+                                    </p>
+                                    <p x-show="importResult.total_errors > 0" class="text-red-400 text-sm mt-1">
+                                        <span x-text="importResult.total_errors"></span> rows had errors
+                                    </p>
+                                </div>
+                                <div x-show="!importResult.success" class="text-center">
+                                    <div class="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
+                                        <svg class="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </div>
+                                    <h4 class="text-lg font-medium text-red-400 mb-2">Import Failed</h4>
+                                    <p class="text-gray-400" x-text="importResult.error || 'Unknown error'"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="p-4 border-t border-gray-700 flex justify-between">
+                    <button x-show="importStep > 1 && importStep < 4"
+                            @click="importStep--"
+                            class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                        Back
+                    </button>
+                    <div x-show="importStep === 1 || importStep === 4"></div>
+                    <div class="flex gap-2">
+                        <button @click="closeImportWizard()"
+                                class="px-4 py-2 text-gray-400 hover:text-gray-200 transition-colors">
+                            <span x-text="importStep === 4 ? 'Close' : 'Cancel'"></span>
+                        </button>
+                        <button x-show="importStep === 2"
+                                @click="goToPreview()"
+                                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors">
+                            Continue
+                        </button>
+                        <button x-show="importStep === 3"
+                                @click="confirmImport()"
+                                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors">
+                            Import Now
+                        </button>
+                        <button x-show="importStep === 4 && !importLoading && importResult?.success"
+                                @click="resetImportWizard()"
+                                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors">
+                            Import More
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Goals Tab -->
+        <div x-show="tab === 'goals'" x-cloak>
+            <!-- Goals Header -->
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-xl font-semibold text-gray-200">Savings Goals</h2>
+                    <p class="text-sm text-gray-400">Track your progress towards financial goals</p>
+                </div>
+                <button @click="openGoalModal()"
+                        class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    New Goal
+                </button>
+            </div>
+
+            <!-- Goals Summary Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6" x-show="savingsGoals.length > 0">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-sm text-gray-400 mb-1">Total Goals</div>
+                    <div class="text-2xl font-bold text-gray-200" x-text="savingsGoals.length"></div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-sm text-gray-400 mb-1">Total Saved</div>
+                    <div class="text-2xl font-bold text-emerald-400" x-text="'$' + savingsGoals.reduce((sum, g) => sum + (g.current_amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-sm text-gray-400 mb-1">Total Target</div>
+                    <div class="text-2xl font-bold text-blue-400" x-text="'$' + savingsGoals.reduce((sum, g) => sum + (g.target_amount || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></div>
+                </div>
+            </div>
+
+            <!-- Goals Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" x-show="savingsGoals.length > 0">
+                <template x-for="goal in savingsGoals" :key="goal.id">
+                    <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden hover:border-gray-600 transition-colors">
+                        <!-- Goal Header with Icon and Color -->
+                        <div class="p-4 border-b border-gray-700" :style="'border-left: 4px solid ' + (goal.color || '#10B981')">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl" x-text="getGoalIcon(goal.icon)"></span>
+                                    <div>
+                                        <h3 class="font-semibold text-gray-200" x-text="goal.name"></h3>
+                                        <p class="text-sm text-gray-400" x-text="goal.description || ''"></p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-1">
+                                    <button @click="openGoalModal(goal)" class="p-1 text-gray-400 hover:text-gray-200 transition-colors" title="Edit">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                        </svg>
+                                    </button>
+                                    <button @click="deleteGoal(goal.id)" class="p-1 text-gray-400 hover:text-red-400 transition-colors" title="Delete">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Section -->
+                        <div class="p-4">
+                            <!-- Amount Display -->
+                            <div class="flex justify-between items-baseline mb-2">
+                                <span class="text-lg font-semibold text-emerald-400" x-text="'$' + (goal.current_amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                                <span class="text-sm text-gray-400">of <span x-text="'$' + (goal.target_amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span></span>
+                            </div>
+
+                            <!-- Progress Bar -->
+                            <div class="h-3 bg-gray-700 rounded-full overflow-hidden mb-2">
+                                <div class="h-full rounded-full transition-all duration-500"
+                                     :style="'width: ' + calculateGoalProgress(goal) + '%; background-color: ' + (goal.color || '#10B981')"
+                                     :class="goal.completed_at ? 'animate-pulse' : ''"></div>
+                            </div>
+
+                            <!-- Progress Percentage and Status -->
+                            <div class="flex justify-between items-center text-sm">
+                                <span :class="goal.completed_at ? 'text-emerald-400 font-medium' : 'text-gray-400'"
+                                      x-text="goal.completed_at ? 'Goal Achieved!' : calculateGoalProgress(goal) + '% complete'"></span>
+                                <span x-show="goal.target_date && !goal.completed_at" class="text-gray-500"
+                                      x-text="getDaysRemaining(goal.target_date) > 0 ? getDaysRemaining(goal.target_date) + ' days left' : 'Past due'"></span>
+                            </div>
+
+                            <!-- Monthly Needed (if target date set) -->
+                            <div x-show="goal.target_date && !goal.completed_at && getMonthlyNeeded(goal) > 0" class="mt-2 text-xs text-gray-500">
+                                Save <span class="text-blue-400 font-medium" x-text="'$' + getMonthlyNeeded(goal).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>/month to reach goal
+                            </div>
+                        </div>
+
+                        <!-- Action Button -->
+                        <div class="px-4 pb-4">
+                            <button @click="openContributionModal(goal)"
+                                    class="w-full py-2 rounded-lg font-medium transition-colors"
+                                    :class="goal.completed_at ? 'bg-gray-700 text-gray-400 cursor-default' : 'bg-emerald-600 hover:bg-emerald-700 text-white'">
+                                <span x-text="goal.completed_at ? 'Completed' : 'Add Contribution'"></span>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Empty State -->
+            <div x-show="savingsGoals.length === 0" class="bg-gray-800 rounded-lg border border-gray-700 p-12 text-center">
+                <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h3 class="text-lg font-medium text-gray-300 mb-2">No Savings Goals Yet</h3>
+                <p class="text-gray-500 mb-4">Start tracking your financial goals - whether it's an emergency fund, vacation, or new purchase.</p>
+                <button @click="openGoalModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Create Your First Goal
+                </button>
+            </div>
+        </div>
+
+        <!-- Goal Modal -->
+        <div x-show="showGoalModal" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closeGoalModal()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-md mx-4">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h3 class="text-lg font-semibold text-gray-200" x-text="editingGoal ? 'Edit Goal' : 'Create New Goal'"></h3>
+                    <button @click="closeGoalModal()" class="text-gray-400 hover:text-gray-200">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <form @submit.prevent="saveGoal()" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Goal Name *</label>
+                        <input type="text" x-model="goalForm.name" required
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
+                               placeholder="e.g., Emergency Fund, Vacation">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
+                        <input type="text" x-model="goalForm.description"
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
+                               placeholder="Optional description">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Target Amount *</label>
+                            <input type="number" step="0.01" min="0" x-model.number="goalForm.target_amount" required
+                                   class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                   placeholder="0.00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Target Date</label>
+                            <input type="date" x-model="goalForm.target_date"
+                                   class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Color</label>
+                            <input type="color" x-model="goalForm.color"
+                                   class="w-full h-10 bg-gray-700 border border-gray-600 rounded-lg cursor-pointer">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Icon</label>
+                            <select x-model="goalForm.icon"
+                                    class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500">
+                                <option value="piggy-bank">Piggy Bank</option>
+                                <option value="home">Home</option>
+                                <option value="car">Car</option>
+                                <option value="vacation">Vacation</option>
+                                <option value="education">Education</option>
+                                <option value="emergency">Emergency</option>
+                                <option value="gift">Gift</option>
+                                <option value="health">Health</option>
+                                <option value="wedding">Wedding</option>
+                                <option value="baby">Baby</option>
+                                <option value="retirement">Retirement</option>
+                                <option value="tech">Tech</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 pt-2">
+                        <button type="button" @click="closeGoalModal()"
+                                class="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-200 py-2 rounded-lg font-medium transition-colors">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-medium transition-colors">
+                            <span x-text="editingGoal ? 'Update Goal' : 'Create Goal'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Contribution Modal -->
+        <div x-show="showContributionModal" x-cloak
+             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+             @click.self="closeContributionModal()">
+            <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-lg mx-4">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-200">Manage Contributions</h3>
+                        <p class="text-sm text-gray-400" x-text="contributionGoal?.name"></p>
+                    </div>
+                    <button @click="closeContributionModal()" class="text-gray-400 hover:text-gray-200">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="p-4">
+                    <!-- Current Progress -->
+                    <div class="mb-4 p-3 bg-gray-700/50 rounded-lg">
+                        <div class="flex justify-between items-baseline mb-2">
+                            <span class="text-emerald-400 font-semibold" x-text="'$' + (contributionGoal?.current_amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                            <span class="text-sm text-gray-400">of <span x-text="'$' + (contributionGoal?.target_amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span></span>
+                        </div>
+                        <div class="h-2 bg-gray-600 rounded-full overflow-hidden">
+                            <div class="h-full bg-emerald-500 rounded-full transition-all"
+                                 :style="'width: ' + (contributionGoal ? calculateGoalProgress(contributionGoal) : 0) + '%'"></div>
+                        </div>
+                    </div>
+
+                    <!-- Add Contribution Form -->
+                    <form @submit.prevent="addContribution()" class="mb-4">
+                        <div class="flex gap-2">
+                            <div class="flex-1">
+                                <input type="number" step="0.01" x-model="contributionAmount" required
+                                       class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                       placeholder="Amount (use negative to withdraw)">
+                            </div>
+                            <button type="submit"
+                                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+                                Add
+                            </button>
+                        </div>
+                        <input type="text" x-model="contributionNote"
+                               class="w-full mt-2 bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
+                               placeholder="Optional note">
+                    </form>
+
+                    <!-- Contribution History -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-400 mb-2">Recent Contributions</h4>
+                        <div class="max-h-48 overflow-y-auto space-y-2">
+                            <template x-for="contrib in goalContributions" :key="contrib.id">
+                                <div class="flex items-center justify-between p-2 bg-gray-700/50 rounded-lg">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-2">
+                                            <span :class="contrib.amount >= 0 ? 'text-emerald-400' : 'text-red-400'" class="font-medium"
+                                                  x-text="(contrib.amount >= 0 ? '+' : '') + '$' + Math.abs(contrib.amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span>
+                                            <span class="text-xs text-gray-500" x-text="new Date(contrib.created_at).toLocaleDateString()"></span>
+                                        </div>
+                                        <p x-show="contrib.note" class="text-xs text-gray-400 mt-1" x-text="contrib.note"></p>
+                                    </div>
+                                    <button @click="deleteContribution(contrib.id)" class="p-1 text-gray-500 hover:text-red-400 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </template>
+                            <div x-show="goalContributions.length === 0" class="text-center py-4 text-gray-500 text-sm">
+                                No contributions yet
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 border-t border-gray-700">
+                    <button @click="closeContributionModal()"
+                            class="w-full bg-gray-700 hover:bg-gray-600 text-gray-200 py-2 rounded-lg font-medium transition-colors">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transactions Tab -->
+        <div x-show="tab === 'transactions'" x-cloak>
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700">
+                <div class="p-4 border-b border-gray-700 flex flex-wrap gap-2 items-center">
+                    <select x-model="txnFilter.category" @change="loadTransactions()"
+                            class="bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">All Categories</option>
+                        <template x-for="cat in categories" :key="cat.id">
+                            <option :value="cat.name" x-text="cat.name"></option>
+                        </template>
+                    </select>
+                    <select x-model="txnFilter.sortBy" @change="loadTransactions()"
+                            class="bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <option value="date">Date</option>
+                        <option value="amount">Amount</option>
+                        <option value="merchant">Merchant</option>
+                    </select>
+                    <select x-model="txnFilter.sortDir" @change="loadTransactions()"
+                            class="bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        <option value="desc">Newest First</option>
+                        <option value="asc">Oldest First</option>
+                    </select>
+                    <div class="flex-1"></div>
+                    <button @click="openImportWizard()"
+                            class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                        </svg>
+                        Import CSV
+                    </button>
+                </div>
+                <div class="divide-y divide-gray-700">
+                    <template x-for="txn in transactions" :key="txn.id">
+                        <div class="p-4 hover:bg-gray-750 hover:bg-opacity-50 flex items-center justify-between transition-colors">
+                            <div class="flex-1 min-w-0 cursor-pointer" @click="askAboutTransaction(txn)">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-medium truncate text-gray-200" x-text="txn.merchant"></span>
+                                    <span x-show="txn.is_split" class="text-xs px-1.5 py-0.5 bg-purple-900/50 text-purple-300 rounded" title="Split transaction">Split</span>
+                                </div>
+                                <div class="text-sm text-gray-500" x-text="txn.date"></div>
+                                <div x-show="txn.description" class="text-xs text-gray-600 truncate" x-text="txn.description"></div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="text-right">
+                                    <div class="font-medium" :class="txn.amount < 0 ? 'text-red-400' : 'text-green-400'"
+                                         x-text="formatCurrency(txn.amount)"></div>
+                                    <div x-show="txn.category_name && !txn.is_split" class="text-xs bg-blue-900 text-blue-200 px-2 py-0.5 rounded"
+                                         x-text="txn.category_name"></div>
+                                </div>
+                                <!-- Split Button -->
+                                <button @click.stop="openSplitModal(txn)" x-show="txn.amount < 0"
+                                        class="p-1.5 text-purple-400 hover:bg-purple-400/20 rounded transition-colors"
+                                        :title="txn.is_split ? 'Edit splits' : 'Split transaction'">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="transactions.length === 0 && !loading" class="p-8 text-center text-gray-500">
+                        No transactions found
+                    </div>
+                </div>
+                <!-- Pagination -->
+                <div x-show="txnTotal > 50" class="p-4 border-t border-gray-700 flex justify-between items-center">
+                    <span class="text-sm text-gray-500" x-text="'Showing ' + transactions.length + ' of ' + txnTotal"></span>
+                    <div class="space-x-2">
+                        <button @click="txnOffset = Math.max(0, txnOffset - 50); loadTransactions()"
+                                :disabled="txnOffset === 0"
+                                class="px-3 py-1 bg-gray-700 border border-gray-600 rounded text-sm disabled:opacity-50 hover:bg-gray-600 transition-colors">Previous</button>
+                        <button @click="txnOffset += 50; loadTransactions()"
+                                :disabled="txnOffset + 50 >= txnTotal"
+                                class="px-3 py-1 bg-gray-700 border border-gray-600 rounded text-sm disabled:opacity-50 hover:bg-gray-600 transition-colors">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Uncategorized Tab -->
+        <div x-show="tab === 'uncategorized'" x-cloak>
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 divide-y divide-gray-700">
+                <template x-for="txn in uncategorized" :key="txn.id">
+                    <div class="p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex-1 cursor-pointer" @click="askAboutTransaction(txn)">
+                                <div class="font-medium text-gray-200" x-text="txn.merchant"></div>
+                                <div class="text-sm text-gray-500" x-text="txn.date + ' | ' + formatCurrency(txn.amount)"></div>
+                            </div>
+                            <button @click="askAboutTransaction(txn)"
+                                    class="text-xs px-2 py-1 bg-purple-900 text-purple-200 rounded hover:bg-purple-800 mr-2 transition-colors">
+                                Ask Claude
+                            </button>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="cat in categories" :key="cat.id">
+                                <button @click="categorize(txn.id, cat.name)"
+                                        class="text-xs px-2 py-1 bg-gray-700 border border-gray-600 rounded hover:bg-gray-600 hover:border-blue-500 transition-colors">
+                                    <span x-text="cat.name"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="uncategorized.length === 0" class="p-8 text-center text-gray-500">
+                    All transactions categorized!
+                </div>
+            </div>
+        </div>
+
+        <!-- Recurring Tab -->
+        <div x-show="tab === 'recurring'" x-cloak>
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 divide-y divide-gray-700">
+                <template x-for="pattern in recurring" :key="pattern.merchant">
+                    <div class="p-4">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <div class="font-medium text-gray-200" x-text="pattern.merchant"></div>
+                                <div class="text-sm text-gray-500" x-text="pattern.count + ' occurrences'"></div>
+                            </div>
+                            <div class="text-lg font-bold" :class="pattern.amount < 0 ? 'text-red-400' : 'text-green-400'"
+                                 x-text="formatCurrency(pattern.amount)"></div>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="recurring.length === 0" class="p-8 text-center text-gray-500">
+                    No recurring patterns detected
+                </div>
+            </div>
+        </div>
+
+        <!-- Anomalies Tab -->
+        <div x-show="tab === 'anomalies'" x-cloak>
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 divide-y divide-gray-700">
+                <template x-for="txn in anomalies" :key="txn.id">
+                    <div class="p-4 bg-yellow-900 bg-opacity-30 cursor-pointer hover:bg-opacity-50 transition-colors" @click="askAboutTransaction(txn)">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <div class="font-medium text-gray-200" x-text="txn.merchant"></div>
+                                <div class="text-sm text-gray-500" x-text="txn.date"></div>
+                                <div x-show="txn.anomaly_reason" class="text-xs text-yellow-400 mt-1" x-text="txn.anomaly_reason"></div>
+                            </div>
+                            <div class="text-lg font-bold text-red-400" x-text="formatCurrency(txn.amount)"></div>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="anomalies.length === 0" class="p-8 text-center text-gray-500">
+                    No anomalies detected
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Tab -->
+        <div x-show="tab === 'search'" x-cloak>
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4 mb-4">
+                <div class="flex gap-2">
+                    <input type="text" x-model="searchQuery" @keyup.enter="doSearch()"
+                           placeholder="Search transactions (e.g., 'coffee shops', 'monthly subscriptions')"
+                           class="flex-1 bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                    <button @click="doSearch()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
+                        Search
+                    </button>
+                </div>
+            </div>
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 divide-y divide-gray-700">
+                <template x-for="txn in searchResults" :key="txn.id">
+                    <div class="p-4 cursor-pointer hover:bg-gray-750 hover:bg-opacity-50 transition-colors" @click="askAboutTransaction(txn)">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <div class="font-medium text-gray-200" x-text="txn.merchant"></div>
+                                <div class="text-sm text-gray-500" x-text="txn.date"></div>
+                                <div x-show="txn.similarity_score" class="text-xs text-blue-400">
+                                    Similarity: <span x-text="(txn.similarity_score * 100).toFixed(0) + '%'"></span>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="font-medium" :class="txn.amount < 0 ? 'text-red-400' : 'text-green-400'"
+                                     x-text="formatCurrency(txn.amount)"></div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="searchResults.length === 0 && searchQuery" class="p-8 text-center text-gray-500">
+                    No results found
+                </div>
+                <div x-show="!searchQuery" class="p-8 text-center text-gray-500">
+                    Enter a search query to find similar transactions
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div x-show="tab === 'settings'" x-cloak>
+            <div class="space-y-6">
+                <!-- Categories Section -->
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700">
+                    <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                        <h2 class="text-lg font-semibold text-gray-100">Budget Categories</h2>
+                        <button @click="openAddCategory()"
+                                class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                            Add Category
+                        </button>
+                    </div>
+                    <div class="divide-y divide-gray-700">
+                        <template x-for="cat in categories" :key="cat.id">
+                            <div class="p-4 hover:bg-gray-750 hover:bg-opacity-50 transition-colors">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex-1">
+                                        <div class="font-medium text-gray-200" x-text="cat.name"></div>
+                                        <div class="text-sm text-gray-500">
+                                            <span x-text="cat.transaction_count || 0"></span> transactions
+                                            <span x-show="cat.keywords" class="ml-2">
+                                                · Keywords: <span x-text="cat.keywords" class="text-gray-400"></span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="openEditCategory(cat)"
+                                                class="text-gray-400 hover:text-blue-400 p-1 transition-colors" title="Edit">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                            </svg>
+                                        </button>
+                                        <button @click="deleteCategory(cat)"
+                                                :class="cat.transaction_count > 0 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-red-400'"
+                                                :disabled="cat.transaction_count > 0"
+                                                class="p-1 transition-colors" title="Delete">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <!-- Budget Progress Bar -->
+                                <div x-show="cat.budget_amount > 0" class="mt-2">
+                                    <div class="flex justify-between text-xs mb-1">
+                                        <span class="text-gray-400">
+                                            Spent: <span class="text-gray-200" x-text="formatCurrency(cat.spent || 0)"></span>
+                                        </span>
+                                        <span class="text-gray-400">
+                                            Budget: <span class="text-gray-200" x-text="formatCurrency(cat.budget_amount)"></span>
+                                        </span>
+                                    </div>
+                                    <div class="w-full bg-gray-700 rounded-full h-2">
+                                        <div class="h-2 rounded-full transition-all duration-300"
+                                             :class="cat.budget_percent >= 100 ? 'bg-red-500' : cat.budget_percent >= 80 ? 'bg-yellow-500' : 'bg-green-500'"
+                                             :style="'width: ' + Math.min(100, cat.budget_percent || 0) + '%'"></div>
+                                    </div>
+                                    <div class="text-xs mt-1"
+                                         :class="cat.budget_percent >= 100 ? 'text-red-400' : cat.budget_percent >= 80 ? 'text-yellow-400' : 'text-green-400'">
+                                        <span x-text="(cat.budget_percent || 0).toFixed(0) + '% used'"></span>
+                                        <span x-show="cat.budget_percent >= 100" class="ml-1">(Over budget!)</span>
+                                        <span x-show="cat.budget_amount > 0 && cat.budget_percent < 100" class="text-gray-500 ml-1"
+                                              x-text="'(' + formatCurrency(cat.budget_amount - (cat.spent || 0)) + ' remaining)'"></span>
+                                    </div>
+                                </div>
+                                <div x-show="!cat.budget_amount || cat.budget_amount === 0" class="mt-2 text-xs text-gray-500">
+                                    No budget set
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="categories.length === 0" class="p-8 text-center text-gray-500">
+                            No categories defined
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Accounts Section -->
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700">
+                    <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                        <h2 class="text-lg font-semibold text-gray-100">Bank Accounts</h2>
+                        <button @click="openAddAccount()"
+                                class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                            Add Account
+                        </button>
+                    </div>
+                    <div class="divide-y divide-gray-700">
+                        <template x-for="account in accounts" :key="account.id">
+                            <div class="p-4 hover:bg-gray-750 hover:bg-opacity-50 transition-colors">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <!-- Account Icon with Color -->
+                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                                             :style="'background-color: ' + (account.color || '#3B82F6') + '20'">
+                                            <svg class="w-5 h-5" :style="'color: ' + (account.color || '#3B82F6')" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="getAccountTypeIcon(account.account_type)"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <div class="font-medium text-gray-200 flex items-center gap-2">
+                                                <span x-text="account.name"></span>
+                                                <span x-show="account.last_four" class="text-xs text-gray-500" x-text="'••••' + account.last_four"></span>
+                                            </div>
+                                            <div class="text-sm text-gray-500 flex items-center gap-2">
+                                                <span x-text="account.institution || 'Unknown'"></span>
+                                                <span class="text-gray-600">•</span>
+                                                <span x-text="getAccountTypeLabel(account.account_type)"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <!-- Balance Display -->
+                                        <div class="text-right">
+                                            <div class="text-sm text-gray-400" x-text="account.balance_label || 'Balance'"></div>
+                                            <div class="text-lg font-bold"
+                                                 :class="account.account_type === 'credit' ? 'text-orange-400' : (account.balance >= 0 ? 'text-green-400' : 'text-red-400')"
+                                                 x-text="formatCurrency(account.balance || 0)"></div>
+                                            <!-- Available Credit for credit cards -->
+                                            <div x-show="account.account_type === 'credit'" class="text-xs text-gray-500">
+                                                Available: <span x-text="formatCurrency(account.available_credit || 0)" class="text-gray-400"></span>
+                                            </div>
+                                        </div>
+                                        <!-- Action Buttons -->
+                                        <div class="flex items-center gap-1">
+                                            <button @click="openEditAccount(account)"
+                                                    class="text-gray-400 hover:text-blue-400 p-1 transition-colors" title="Edit">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                </svg>
+                                            </button>
+                                            <button @click="deleteAccount(account)"
+                                                    class="text-gray-400 hover:text-red-400 p-1 transition-colors" title="Delete">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="accounts.length === 0" class="p-8 text-center text-gray-500">
+                            No accounts configured. Add your bank accounts to track balances.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Section -->
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <h3 class="text-sm font-medium text-gray-400 mb-2">About Categories</h3>
+                    <p class="text-sm text-gray-500">
+                        Categories help you organize and track your spending. You can add keywords to categories
+                        for automatic matching. Categories with transactions cannot be deleted - reassign
+                        transactions first.
+                    </p>
+                </div>
+
+                <!-- Accounts Info Section -->
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4">
+                    <h3 class="text-sm font-medium text-gray-400 mb-2">About Accounts</h3>
+                    <p class="text-sm text-gray-500">
+                        Track your bank accounts, credit cards, and investment accounts. For credit cards,
+                        the balance shows amount owed (positive = debt). The "Initial Balance" for credit cards
+                        represents your credit limit.
+                    </p>
+                </div>
+
+                <!-- Admin Section -->
+                <div class="bg-gray-800 rounded-lg shadow-lg border border-red-900/50">
+                    <div class="p-4 border-b border-gray-700">
+                        <h2 class="text-lg font-semibold text-red-400 flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                            Admin / Danger Zone
+                        </h2>
+                    </div>
+                    <div class="p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-sm font-medium text-gray-300">Reset All Data</h3>
+                                <p class="text-sm text-gray-500">Delete all transactions, accounts, rules, and reset categories to defaults. This action cannot be undone.</p>
+                            </div>
+                            <button @click="openResetConfirm()"
+                                    class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                                Reset Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Reset Confirmation Modal -->
+    <div x-show="showResetConfirm" x-cloak
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+         @click.self="closeResetConfirm()">
+        <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 border border-red-900/50">
+            <div class="p-4 border-b border-gray-700">
+                <h2 class="text-lg font-bold text-red-400 flex items-center gap-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    Confirm Data Reset
+                </h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div class="bg-red-900/30 border border-red-700 rounded-lg p-3">
+                    <p class="text-red-300 text-sm font-medium">Warning: This will permanently delete:</p>
+                    <ul class="text-red-400 text-sm mt-2 ml-4 list-disc">
+                        <li>All transactions</li>
+                        <li>All accounts</li>
+                        <li>All categorization rules</li>
+                        <li>All categorization logs</li>
+                    </ul>
+                    <p class="text-red-300 text-sm mt-2">Categories will be reset to defaults.</p>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">
+                        Type <span class="font-bold text-red-400">RESET</span> to confirm:
+                    </label>
+                    <input type="text" x-model="resetConfirmText"
+                           class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-gray-100 focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                           placeholder="Type RESET here"
+                           @keydown.enter="confirmResetData()">
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-700 flex justify-end gap-3">
+                <button @click="closeResetConfirm()" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors">
+                    Cancel
+                </button>
+                <button @click="confirmResetData()"
+                        :disabled="resetConfirmText !== 'RESET'"
+                        :class="resetConfirmText === 'RESET' ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-600 cursor-not-allowed opacity-50'"
+                        class="px-4 py-2 text-white rounded-lg transition-colors">
+                    Reset All Data
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Chat Widget -->
+    <div class="fixed bottom-4 right-4 z-50 chat-widget"
+         :class="chatOpen ? 'expanded' : 'minimized'"
+         @dragover.prevent="handleChatDragOver($event)"
+         @dragleave.prevent="handleChatDragLeave($event)"
+         @drop.prevent="handleChatFileDrop($event)">
+
+        <!-- File drop overlay -->
+        <div x-show="chatFileDropActive && chatOpen"
+             class="absolute inset-0 bg-blue-600 bg-opacity-90 z-50 flex items-center justify-center rounded-lg border-2 border-dashed border-white">
+            <div class="text-center text-white">
+                <svg class="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="font-medium">Drop CSV file here</p>
+                <p class="text-sm opacity-80">to import transactions</p>
+            </div>
+        </div>
+
+        <!-- Hidden file input -->
+        <input type="file" id="chat-file-input" accept=".csv" class="hidden" @change="handleChatFileDrop({target: $el, dataTransfer: {files: $el.files}})">
+
+        <!-- Minimized: Just the chat button -->
+        <button x-show="!chatOpen" @click="chatOpen = true"
+                class="w-14 h-14 bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg flex items-center justify-center text-white transition-all">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+            </svg>
+            <!-- Notification dot when has context -->
+            <span x-show="chatContext" class="absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900"></span>
+        </button>
+
+        <!-- Expanded: Full chat panel -->
+        <div x-show="chatOpen" x-cloak
+             class="bg-gray-800 rounded-lg shadow-2xl flex flex-col h-full overflow-hidden border border-gray-700">
+
+            <!-- Header -->
+            <div class="bg-gray-900 text-white p-3 flex items-center justify-between border-b border-gray-700">
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full bg-green-400"></div>
+                    <span class="font-medium text-sm">Budget Assistant</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button @click="clearChat()" class="p-1 hover:bg-gray-700 rounded transition-colors" title="Clear chat">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                    <button @click="chatOpen = false" class="p-1 hover:bg-gray-700 rounded transition-colors" title="Minimize">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Context indicator (when a transaction is selected) -->
+            <div x-show="chatContext" class="bg-blue-900 bg-opacity-50 px-3 py-2 text-xs border-b border-gray-700 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-blue-400 font-medium">Context:</span>
+                    <span x-text="chatContext?.merchant" class="truncate max-w-[200px] text-gray-300"></span>
+                    <span x-text="formatCurrency(chatContext?.amount)"
+                          :class="chatContext?.amount < 0 ? 'text-red-400' : 'text-green-400'"></span>
+                </div>
+                <button @click="chatContext = null" class="text-gray-500 hover:text-gray-300 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Quick actions (collapsible) -->
+            <div x-show="!chatContext && chatMessages.length === 0" class="border-b border-gray-700">
+                <button @click="showQuickActions = !showQuickActions"
+                        class="w-full px-3 py-2 text-xs text-gray-400 flex items-center justify-between hover:bg-gray-750 hover:bg-opacity-50 transition-colors">
+                    <span>Quick Questions</span>
+                    <svg class="w-4 h-4 transition-transform" :class="showQuickActions ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                </button>
+                <div x-show="showQuickActions" x-collapse class="px-3 pb-2 flex flex-wrap gap-1">
+                    <button @click="sendChatMessage('What is my budget summary?')"
+                            class="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors">Summary</button>
+                    <button @click="sendChatMessage('What are my top spending categories?')"
+                            class="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors">Top Categories</button>
+                    <button @click="sendChatMessage('What subscriptions do I have?')"
+                            class="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors">Subscriptions</button>
+                    <button @click="sendChatMessage('Show unusual transactions')"
+                            class="text-xs px-2 py-1 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors">Anomalies</button>
+                    <button @click="sendChatMessage('Help me categorize my uncategorized transactions')"
+                            class="text-xs px-2 py-1 bg-green-900 text-green-300 rounded hover:bg-green-800 transition-colors">Help Categorize</button>
+                </div>
+            </div>
+
+            <!-- Chat messages area -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-900" id="chat-messages">
+                <!-- Welcome message when empty -->
+                <div x-show="chatMessages.length === 0 && !chatContext" class="text-center text-gray-500 py-8">
+                    <svg class="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                    <p class="text-sm">Ask me about your budget!</p>
+                    <p class="text-xs mt-1">Click a transaction to discuss it</p>
+                </div>
+
+                <!-- Context prompt when transaction selected but no messages -->
+                <div x-show="chatMessages.length === 0 && chatContext" class="text-center text-gray-400 py-4">
+                    <p class="text-sm">Ask about this transaction:</p>
+                    <p class="text-xs text-gray-500 mt-1">"What category should this be?" or "Is this a recurring charge?"</p>
+                </div>
+
+                <!-- Message list -->
+                <template x-for="(msg, idx) in chatMessages" :key="idx">
+                    <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+                        <div :class="msg.role === 'user'
+                            ? 'bg-blue-600 text-white rounded-lg rounded-br-sm px-3 py-2 max-w-[85%]'
+                            : 'bg-gray-700 text-gray-200 rounded-lg rounded-bl-sm px-3 py-2 max-w-[85%]'">
+                            <div class="text-sm whitespace-pre-wrap" x-text="msg.content"></div>
+                            <!-- Show actions if any -->
+                            <div x-show="msg.actions && msg.actions.length > 0" class="mt-2 pt-2 border-t border-gray-600">
+                                <template x-for="action in msg.actions || []" :key="action.type + action.txn_id">
+                                    <div class="text-xs text-green-400">
+                                        <span x-show="action.type === 'categorize'">Categorized transaction as <span x-text="action.category"></span></span>
+                                        <span x-show="action.type === 'create_rule'">Created rule: <span x-text="action.name"></span></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Typing indicator -->
+                <div x-show="chatLoading" class="flex justify-start">
+                    <div class="bg-gray-700 text-gray-400 rounded-lg px-3 py-2">
+                        <div class="flex gap-1">
+                            <div class="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+                            <div class="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+                            <div class="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import preview card -->
+            <div x-show="chatImportPreview" class="p-3 border-t border-gray-700 bg-gray-750 bg-opacity-50">
+                <div class="text-xs text-gray-400 mb-2 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <span x-text="chatImportPreview?.filename"></span>
+                </div>
+                <div class="bg-gray-800 rounded p-2 mb-2 text-xs">
+                    <div class="flex justify-between text-gray-400 mb-1">
+                        <span>Rows:</span>
+                        <span x-text="chatImportPreview?.total_rows" class="text-white"></span>
+                    </div>
+                    <div class="flex justify-between text-gray-400">
+                        <span>Columns detected:</span>
+                        <span class="text-white">
+                            <span x-show="chatImportPreview?.detected_mapping?.date">Date</span>
+                            <span x-show="chatImportPreview?.detected_mapping?.amount">, Amount</span>
+                            <span x-show="chatImportPreview?.detected_mapping?.merchant">, Merchant</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button @click="confirmChatImport(true)"
+                            :disabled="chatImportStatus === 'importing'"
+                            class="flex-1 px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50 transition-colors">
+                        <span x-show="chatImportStatus !== 'importing'">Import & Auto-Categorize</span>
+                        <span x-show="chatImportStatus === 'importing'">Importing...</span>
+                    </button>
+                    <button @click="cancelChatImport()"
+                            :disabled="chatImportStatus === 'importing'"
+                            class="px-3 py-1.5 bg-gray-600 text-white text-xs rounded hover:bg-gray-500 disabled:opacity-50 transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Input area -->
+            <div class="p-3 border-t border-gray-700 bg-gray-800">
+                <div class="flex gap-2">
+                    <!-- Upload button -->
+                    <button @click="triggerChatFileInput()"
+                            :disabled="chatLoading || chatImportStatus === 'uploading'"
+                            class="px-3 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            title="Upload CSV file">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </button>
+                    <input type="text" x-model="chatInput"
+                           @keyup.enter="sendChatMessage(chatInput)"
+                           :disabled="chatLoading"
+                           placeholder="Ask about your budget..."
+                           class="flex-1 bg-gray-700 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50">
+                    <button @click="sendChatMessage(chatInput)"
+                            :disabled="!chatInput.trim() || chatLoading"
+                            class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div x-show="showImport" x-cloak class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-6 max-w-md w-full mx-4" @click.away="showImport = false">
+            <h2 class="text-lg font-semibold mb-4 text-gray-100">Import Transactions</h2>
+            <input type="file" accept=".csv,.xlsx,.xls" @change="handleFileSelect"
+                   class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded p-2 mb-4 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white file:cursor-pointer hover:file:bg-blue-700">
+            <div x-show="importResult" class="mb-4 p-3 rounded"
+                 :class="importResult?.added > 0 ? 'bg-green-900 bg-opacity-50 text-green-200' : 'bg-yellow-900 bg-opacity-50 text-yellow-200'">
+                <div x-text="'Added: ' + (importResult?.added || 0)"></div>
+                <div x-text="'Duplicates: ' + (importResult?.duplicates || 0)"></div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button @click="showImport = false" class="px-4 py-2 bg-gray-700 border border-gray-600 rounded hover:bg-gray-600 transition-colors">Cancel</button>
+                <button @click="uploadFile()" :disabled="!selectedFile || uploading"
+                        class="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 hover:bg-blue-700 transition-colors">
+                    <span x-show="!uploading">Upload</span>
+                    <span x-show="uploading">Uploading...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Modal -->
+    <div x-show="showCategoryModal" x-cloak class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-6 max-w-md w-full mx-4" @click.away="closeCategoryModal()">
+            <h2 class="text-lg font-semibold mb-4 text-gray-100" x-text="editingCategory ? 'Edit Category' : 'Add Category'"></h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Category Name</label>
+                    <input type="text" x-model="newCategoryName"
+                           placeholder="e.g., Groceries, Entertainment"
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Monthly Budget</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-2 text-gray-400">$</span>
+                        <input type="number" x-model.number="newCategoryBudget" min="0" step="1"
+                               placeholder="0"
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 pl-7 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Set to 0 for no budget limit</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Keywords (optional)</label>
+                    <input type="text" x-model="newCategoryKeywords"
+                           placeholder="e.g., walmart, kroger, safeway"
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Comma-separated keywords for automatic matching</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-6">
+                <button @click="closeCategoryModal()" class="px-4 py-2 bg-gray-700 border border-gray-600 rounded hover:bg-gray-600 transition-colors">
+                    Cancel
+                </button>
+                <button @click="saveCategory()" :disabled="!newCategoryName.trim()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 hover:bg-blue-700 transition-colors">
+                    <span x-text="editingCategory ? 'Save Changes' : 'Add Category'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account Modal -->
+    <div x-show="showAccountModal" x-cloak class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-6 max-w-md w-full mx-4" @click.away="closeAccountModal()">
+            <h2 class="text-lg font-semibold mb-4 text-gray-100" x-text="editingAccount ? 'Edit Account' : 'Add Account'"></h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Account Name</label>
+                    <input type="text" x-model="newAccountName"
+                           placeholder="e.g., Main Checking, Savings"
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Institution</label>
+                    <input type="text" x-model="newAccountInstitution"
+                           placeholder="e.g., Chase, Ally, Bank of America"
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Account Type</label>
+                    <select x-model="newAccountType"
+                            class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="checking">Checking</option>
+                        <option value="savings">Savings</option>
+                        <option value="credit">Credit Card</option>
+                        <option value="investment">Investment</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Last 4 Digits (optional)</label>
+                    <input type="text" x-model="newAccountLastFour" maxlength="4"
+                           placeholder="1234"
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">
+                        <span x-show="newAccountType === 'credit'">Credit Limit</span>
+                        <span x-show="newAccountType !== 'credit'">Initial Balance</span>
+                    </label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-2 text-gray-400">$</span>
+                        <input type="number" x-model.number="newAccountInitialBalance" step="0.01"
+                               placeholder="0.00"
+                               class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 pl-7 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <span x-show="newAccountType === 'credit'">Your credit card limit</span>
+                        <span x-show="newAccountType !== 'credit'">Starting balance when tracking begins</span>
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Color</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" x-model="newAccountColor"
+                               class="w-10 h-10 rounded cursor-pointer border-0 bg-transparent">
+                        <span class="text-sm text-gray-400" x-text="newAccountColor"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-6">
+                <button @click="closeAccountModal()" class="px-4 py-2 bg-gray-700 border border-gray-600 rounded hover:bg-gray-600 transition-colors">
+                    Cancel
+                </button>
+                <button @click="saveAccount()" :disabled="!newAccountName.trim()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 hover:bg-blue-700 transition-colors">
+                    <span x-text="editingAccount ? 'Save Changes' : 'Add Account'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div x-show="loading" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-40">
+        <div class="text-center">
+            <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+            <div class="text-gray-400">Loading...</div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
