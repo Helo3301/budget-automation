@@ -34,6 +34,472 @@
     </style>
 </head>
 <body class="bg-gray-900 min-h-screen text-gray-100" x-data="app()" x-init="init()">
+
+    <!-- Onboarding Wizard Modal -->
+    <div x-show="showOnboardingWizard" x-cloak
+         class="fixed inset-0 z-50 bg-gray-900 overflow-y-auto">
+        <div class="min-h-screen flex flex-col">
+            <!-- Progress Bar -->
+            <div class="bg-gray-800 border-b border-gray-700 px-4 py-3">
+                <div class="max-w-3xl mx-auto">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Step <span x-text="wizardStep"></span> of 8</span>
+                        <button @click="skipOnboarding()" class="text-sm text-gray-500 hover:text-gray-300">Skip Setup</button>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" :style="`width: ${(wizardStep / 8) * 100}%`"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Content -->
+            <div class="flex-1 px-4 py-8">
+                <div class="max-w-3xl mx-auto">
+
+                    <!-- Step 1: Welcome -->
+                    <div x-show="wizardStep === 1" class="text-center">
+                        <div class="mb-8">
+                            <div class="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </div>
+                            <h1 class="text-3xl font-bold text-white mb-4">Welcome to Budget Tracker</h1>
+                            <p class="text-gray-400 text-lg max-w-xl mx-auto">
+                                Let's set up your personal finance tracker in just a few minutes.
+                                We'll help you choose a budgeting method, set up your accounts, and create a budget that works for you.
+                            </p>
+                        </div>
+
+                        <div class="bg-gray-800 rounded-lg p-6 mb-8 text-left max-w-md mx-auto">
+                            <h3 class="font-semibold text-white mb-4 flex items-center">
+                                <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                                </svg>
+                                Privacy First
+                            </h3>
+                            <ul class="text-gray-400 text-sm space-y-2">
+                                <li class="flex items-start">
+                                    <svg class="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                    </svg>
+                                    All your data stays on your device
+                                </li>
+                                <li class="flex items-start">
+                                    <svg class="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                    </svg>
+                                    No bank account connections required
+                                </li>
+                                <li class="flex items-start">
+                                    <svg class="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                                    </svg>
+                                    Import transactions via CSV export
+                                </li>
+                            </ul>
+                        </div>
+
+                        <button @click="wizardNext()" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium text-lg transition-colors">
+                            Get Started
+                        </button>
+                    </div>
+
+                    <!-- Step 2: Choose Budgeting Method -->
+                    <div x-show="wizardStep === 2">
+                        <div class="text-center mb-8">
+                            <h2 class="text-2xl font-bold text-white mb-2">Choose Your Budgeting Style</h2>
+                            <p class="text-gray-400">Pick a method that fits your lifestyle. Don't worry - you can always adjust later.</p>
+                        </div>
+
+                        <div x-show="wizardLoading" class="text-center py-12">
+                            <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                            <p class="text-gray-400 mt-4">Loading budgeting methods...</p>
+                        </div>
+
+                        <div x-show="!wizardLoading" class="grid gap-4">
+                            <template x-for="method in budgetingMethods" :key="method.id">
+                                <div @click="selectBudgetingMethod(method.id)"
+                                     :class="selectedMethod === method.id ? 'border-blue-500 bg-blue-900/20' : 'border-gray-700 hover:border-gray-600'"
+                                     class="border-2 rounded-lg p-4 cursor-pointer transition-all">
+                                    <div class="flex items-start">
+                                        <div class="flex-shrink-0 w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center mr-4">
+                                            <span class="text-lg font-bold text-blue-400" x-text="getMethodIcon(method.id)"></span>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="flex items-center justify-between">
+                                                <h3 class="font-semibold text-white" x-text="method.name"></h3>
+                                                <span class="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded" x-text="method.short_description"></span>
+                                            </div>
+                                            <p class="text-gray-400 text-sm mt-1" x-text="method.description"></p>
+                                            <div class="mt-3 flex flex-wrap gap-2">
+                                                <span class="text-xs text-gray-500">Best for:</span>
+                                                <template x-for="tag in method.best_for" :key="tag">
+                                                    <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" x-text="tag"></span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                        <div x-show="selectedMethod === method.id" class="ml-4 text-blue-500">
+                                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+
+                                    <!-- Expanded details when selected -->
+                                    <div x-show="selectedMethod === method.id && selectedMethodDetails" x-collapse class="mt-4 pt-4 border-t border-gray-700">
+                                        <div class="grid grid-cols-2 gap-4 text-sm">
+                                            <div>
+                                                <h4 class="font-medium text-green-400 mb-2">Pros</h4>
+                                                <ul class="space-y-1">
+                                                    <template x-for="pro in method.pros" :key="pro">
+                                                        <li class="text-gray-400 flex items-start">
+                                                            <svg class="w-4 h-4 text-green-500 mr-1 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                                                            </svg>
+                                                            <span x-text="pro"></span>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                            <div>
+                                                <h4 class="font-medium text-yellow-400 mb-2">Cons</h4>
+                                                <ul class="space-y-1">
+                                                    <template x-for="con in method.cons" :key="con">
+                                                        <li class="text-gray-400 flex items-start">
+                                                            <svg class="w-4 h-4 text-yellow-500 mr-1 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                                            </svg>
+                                                            <span x-text="con"></span>
+                                                        </li>
+                                                    </template>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Income -->
+                    <div x-show="wizardStep === 3">
+                        <div class="text-center mb-8">
+                            <h2 class="text-2xl font-bold text-white mb-2">What's Your Income?</h2>
+                            <p class="text-gray-400">Enter your take-home pay (after taxes). This helps us calculate your budget allocations.</p>
+                        </div>
+
+                        <div class="max-w-md mx-auto">
+                            <div class="bg-gray-800 rounded-lg p-6">
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Income Amount</label>
+                                <div class="relative">
+                                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                    <input type="number" x-model="wizardIncome" placeholder="5000"
+                                           class="w-full bg-gray-700 border border-gray-600 rounded-lg pl-8 pr-4 py-3 text-white text-xl focus:outline-none focus:border-blue-500">
+                                </div>
+
+                                <label class="block text-sm font-medium text-gray-300 mt-4 mb-2">Pay Frequency</label>
+                                <select x-model="wizardIncomeFrequency"
+                                        class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                                    <option value="weekly">Weekly</option>
+                                    <option value="biweekly">Every Two Weeks</option>
+                                    <option value="semimonthly">Twice a Month</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="yearly">Yearly</option>
+                                </select>
+
+                                <div x-show="wizardIncome" class="mt-4 p-4 bg-gray-700 rounded-lg">
+                                    <p class="text-gray-400 text-sm">Monthly Income</p>
+                                    <p class="text-2xl font-bold text-green-400" x-text="formatCurrency(getMonthlyIncome())"></p>
+                                </div>
+                            </div>
+
+                            <!-- Tip Box -->
+                            <div class="mt-6 bg-blue-900/30 border border-blue-700 rounded-lg p-4">
+                                <h4 class="font-medium text-blue-400 mb-2 flex items-center">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                                    </svg>
+                                    Tip
+                                </h4>
+                                <p class="text-gray-400 text-sm">Use your take-home pay (after taxes, health insurance, and retirement contributions are deducted). If your income varies, use an average or your lowest typical month.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Accounts -->
+                    <div x-show="wizardStep === 4">
+                        <div class="text-center mb-8">
+                            <h2 class="text-2xl font-bold text-white mb-2">Add Your Accounts</h2>
+                            <p class="text-gray-400">Add your bank accounts and credit cards. This helps organize your transactions when you import them.</p>
+                        </div>
+
+                        <div class="max-w-lg mx-auto">
+                            <!-- Account List -->
+                            <div x-show="wizardAccounts.length > 0" class="space-y-3 mb-6">
+                                <template x-for="(account, index) in wizardAccounts" :key="index">
+                                    <div class="flex items-center bg-gray-800 rounded-lg p-4">
+                                        <div class="w-10 h-10 rounded-full mr-3 flex items-center justify-center" :style="`background-color: ${account.color}`">
+                                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                            </svg>
+                                        </div>
+                                        <div class="flex-1">
+                                            <p class="font-medium text-white" x-text="account.name"></p>
+                                            <p class="text-sm text-gray-400">
+                                                <span x-text="account.institution || 'No institution'"></span>
+                                                <span class="mx-1">-</span>
+                                                <span x-text="account.account_type"></span>
+                                            </p>
+                                        </div>
+                                        <button @click="removeWizardAccount(index)" class="text-gray-500 hover:text-red-400">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- Add Account Form -->
+                            <div class="bg-gray-800 rounded-lg p-6">
+                                <h3 class="font-medium text-white mb-4">Add an Account</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-1">Account Name *</label>
+                                        <input type="text" x-model="wizardNewAccount.name" placeholder="e.g., Main Checking"
+                                               class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm text-gray-400 mb-1">Institution</label>
+                                            <input type="text" x-model="wizardNewAccount.institution" placeholder="e.g., Chase"
+                                                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm text-gray-400 mb-1">Type</label>
+                                            <select x-model="wizardNewAccount.account_type"
+                                                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+                                                <option value="checking">Checking</option>
+                                                <option value="savings">Savings</option>
+                                                <option value="credit">Credit Card</option>
+                                                <option value="investment">Investment</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button @click="addWizardAccount()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition-colors">
+                                        Add Account
+                                    </button>
+                                </div>
+                            </div>
+
+                            <p class="text-center text-gray-500 text-sm mt-4">
+                                You can skip this step and add accounts later
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Step 5: Categories & Budgets -->
+                    <div x-show="wizardStep === 5">
+                        <div class="text-center mb-6">
+                            <h2 class="text-2xl font-bold text-white mb-2">Review Your Budget</h2>
+                            <p class="text-gray-400">Based on your income and chosen method, here's your suggested budget. Adjust any amounts as needed.</p>
+                        </div>
+
+                        <!-- Budget Summary -->
+                        <div class="bg-gray-800 rounded-lg p-4 mb-6 flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-400 text-sm">Monthly Income</p>
+                                <p class="text-xl font-bold text-white" x-text="formatCurrency(getMonthlyIncome())"></p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-gray-400 text-sm">Allocated</p>
+                                <p class="text-xl font-bold" :class="getBudgetAllocationPercent() > 100 ? 'text-red-400' : 'text-green-400'">
+                                    <span x-text="formatCurrency(getTotalBudgetAllocated())"></span>
+                                    <span class="text-sm font-normal text-gray-400">(<span x-text="getBudgetAllocationPercent()"></span>%)</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div x-show="wizardLoading" class="text-center py-12">
+                            <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                        </div>
+
+                        <!-- Category List -->
+                        <div x-show="!wizardLoading" class="space-y-3 max-h-96 overflow-y-auto">
+                            <template x-for="category in wizardCategoryPreview" :key="category.name">
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="flex items-center">
+                                            <span class="w-3 h-3 rounded-full mr-2" :class="getCategoryTypeColor(category.type)"></span>
+                                            <span class="font-medium text-white" x-text="category.name"></span>
+                                            <span class="text-xs text-gray-500 ml-2" x-text="category.type"></span>
+                                        </div>
+                                        <span class="text-sm text-gray-400" x-text="category.percent + '%'"></span>
+                                    </div>
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-gray-400">$</span>
+                                        <input type="number"
+                                               :value="wizardCategoryAdjustments[category.name]"
+                                               @input="updateCategoryBudget(category.name, $event.target.value)"
+                                               class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-white focus:outline-none focus:border-blue-500">
+                                        <span class="text-gray-500 text-sm">/month</span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Step 6: Savings Goals -->
+                    <div x-show="wizardStep === 6">
+                        <div class="text-center mb-8">
+                            <h2 class="text-2xl font-bold text-white mb-2">Start an Emergency Fund?</h2>
+                            <p class="text-gray-400">Financial experts recommend having 3-6 months of expenses saved for emergencies.</p>
+                        </div>
+
+                        <div class="max-w-md mx-auto">
+                            <!-- Emergency Fund Info -->
+                            <div class="bg-gray-800 rounded-lg p-6 mb-6">
+                                <div class="flex items-center mb-4">
+                                    <input type="checkbox" x-model="wizardCreateEmergencyFund" id="createEmergencyFund"
+                                           class="w-5 h-5 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500">
+                                    <label for="createEmergencyFund" class="ml-3 text-white font-medium">Create Emergency Fund Goal</label>
+                                </div>
+
+                                <div x-show="wizardCreateEmergencyFund" class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm text-gray-400 mb-2">Target Amount</label>
+                                        <div class="relative">
+                                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                            <input type="number" x-model="wizardEmergencyFundTarget"
+                                                   class="w-full bg-gray-700 border border-gray-600 rounded-lg pl-8 pr-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                                        </div>
+                                        <p class="text-sm text-gray-500 mt-2">
+                                            Based on your income, we suggest <span class="text-green-400" x-text="formatCurrency(getMonthlyIncome() * 3)"></span> (3 months)
+                                            to <span class="text-green-400" x-text="formatCurrency(getMonthlyIncome() * 6)"></span> (6 months)
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Educational Content -->
+                            <div x-show="wizardTips" class="bg-red-900/20 border border-red-700 rounded-lg p-4">
+                                <h4 class="font-medium text-red-400 mb-2 flex items-center">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                    </svg>
+                                    Why Emergency Funds Matter
+                                </h4>
+                                <ul class="text-gray-400 text-sm space-y-2">
+                                    <template x-for="tip in wizardTips?.emergency_fund?.tips || []" :key="tip">
+                                        <li class="flex items-start">
+                                            <svg class="w-4 h-4 text-red-400 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"></path>
+                                            </svg>
+                                            <span x-text="tip"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 7: Import (Optional) -->
+                    <div x-show="wizardStep === 7">
+                        <div class="text-center mb-8">
+                            <h2 class="text-2xl font-bold text-white mb-2">Import Transactions (Optional)</h2>
+                            <p class="text-gray-400">You can import transactions now or do it later from the dashboard.</p>
+                        </div>
+
+                        <div class="max-w-md mx-auto text-center">
+                            <div class="bg-gray-800 rounded-lg p-8 border-2 border-dashed border-gray-600 hover:border-gray-500 transition-colors">
+                                <svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                <p class="text-gray-400 mb-4">Export a CSV from your bank and import it here</p>
+                                <button @click="completeOnboardingWizard()" class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors">
+                                    Skip for Now
+                                </button>
+                            </div>
+
+                            <div class="mt-6 text-left bg-blue-900/30 border border-blue-700 rounded-lg p-4">
+                                <h4 class="font-medium text-blue-400 mb-2">How to export from your bank:</h4>
+                                <ol class="text-gray-400 text-sm space-y-1 list-decimal list-inside">
+                                    <li>Log into your bank's website</li>
+                                    <li>Go to your account transactions</li>
+                                    <li>Look for "Export" or "Download" option</li>
+                                    <li>Choose CSV format</li>
+                                    <li>Import the file here</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 8: Complete -->
+                    <div x-show="wizardStep === 8" class="text-center">
+                        <div class="mb-8">
+                            <div class="w-20 h-20 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                            </div>
+                            <h2 class="text-3xl font-bold text-white mb-4">You're All Set!</h2>
+                            <p class="text-gray-400 text-lg max-w-md mx-auto">
+                                Your budget is ready. Start tracking your spending and reach your financial goals.
+                            </p>
+                        </div>
+
+                        <div class="bg-gray-800 rounded-lg p-6 max-w-md mx-auto mb-8 text-left">
+                            <h3 class="font-semibold text-white mb-4">What's Next?</h3>
+                            <ul class="space-y-3">
+                                <li class="flex items-start">
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">1</span>
+                                    <span class="text-gray-400">Import your bank transactions via CSV</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">2</span>
+                                    <span class="text-gray-400">Categorize transactions to track spending</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">3</span>
+                                    <span class="text-gray-400">Review your budget overview weekly</span>
+                                </li>
+                                <li class="flex items-start">
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">4</span>
+                                    <span class="text-gray-400">Use the AI assistant for help anytime</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <button @click="finishOnboardingWizard()" class="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-medium text-lg transition-colors">
+                            Go to Dashboard
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Navigation Footer -->
+            <div x-show="wizardStep !== 1 && wizardStep !== 8" class="bg-gray-800 border-t border-gray-700 px-4 py-4">
+                <div class="max-w-3xl mx-auto flex justify-between">
+                    <button @click="wizardBack()" class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors">
+                        Back
+                    </button>
+                    <button x-show="wizardStep < 7" @click="wizardNext()" :disabled="wizardLoading"
+                            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50">
+                        <span x-show="!wizardLoading">Continue</span>
+                        <span x-show="wizardLoading">Loading...</span>
+                    </button>
+                    <button x-show="wizardStep === 7" @click="completeOnboardingWizard()" :disabled="wizardLoading"
+                            class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50">
+                        <span x-show="!wizardLoading">Complete Setup</span>
+                        <span x-show="wizardLoading">Setting up...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Header -->
     <header class="bg-gray-800 shadow-lg border-b border-gray-700 sticky top-0 z-10">
         <div class="max-w-7xl mx-auto px-4 py-3">

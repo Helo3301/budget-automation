@@ -1571,6 +1571,342 @@ def reset_onboarding(service: BudgetService = Depends(get_service)):
     return {"success": True, "message": "Onboarding has been reset"}
 
 
+# Budgeting method templates with educational content
+BUDGETING_METHODS = {
+    "fifty_thirty_twenty": {
+        "id": "fifty_thirty_twenty",
+        "name": "50/30/20 Rule",
+        "short_description": "Simple & balanced",
+        "description": "The 50/30/20 rule divides your after-tax income into three buckets: 50% for needs (essentials), 30% for wants (lifestyle), and 20% for savings and debt repayment. This method is great for beginners because it's simple to follow and provides flexibility.",
+        "best_for": ["Beginners", "Those who want simplicity", "People with stable income"],
+        "pros": ["Easy to remember", "Flexible within categories", "Encourages saving"],
+        "cons": ["May not work for high cost-of-living areas", "Doesn't track individual spending"],
+        "allocation": {
+            "needs": 50,
+            "wants": 30,
+            "savings": 20
+        },
+        "categories": [
+            {"name": "Housing", "type": "needs", "percent": 25, "keywords": "rent,mortgage,property tax"},
+            {"name": "Utilities", "type": "needs", "percent": 5, "keywords": "electric,gas,water,internet,phone"},
+            {"name": "Groceries", "type": "needs", "percent": 10, "keywords": "grocery,supermarket,food"},
+            {"name": "Transportation", "type": "needs", "percent": 10, "keywords": "gas,fuel,uber,lyft,transit,parking"},
+            {"name": "Insurance", "type": "needs", "percent": 0, "keywords": "insurance,premium"},
+            {"name": "Dining Out", "type": "wants", "percent": 5, "keywords": "restaurant,cafe,coffee,doordash,grubhub"},
+            {"name": "Entertainment", "type": "wants", "percent": 5, "keywords": "netflix,spotify,movie,concert,game"},
+            {"name": "Shopping", "type": "wants", "percent": 10, "keywords": "amazon,target,walmart,clothing"},
+            {"name": "Personal Care", "type": "wants", "percent": 5, "keywords": "haircut,salon,gym,spa"},
+            {"name": "Travel", "type": "wants", "percent": 5, "keywords": "hotel,airbnb,airline,vacation"},
+            {"name": "Savings", "type": "savings", "percent": 15, "keywords": "transfer,savings"},
+            {"name": "Debt Payment", "type": "savings", "percent": 5, "keywords": "loan,credit card payment"}
+        ]
+    },
+    "zero_based": {
+        "id": "zero_based",
+        "name": "Zero-Based Budget",
+        "short_description": "Every dollar has a job",
+        "description": "With zero-based budgeting, you assign every dollar of income to a specific category until you have $0 left to allocate. This ensures complete control over your money and eliminates wasteful spending. Popular method taught by Dave Ramsey.",
+        "best_for": ["Detail-oriented people", "Those paying off debt", "People who want maximum control"],
+        "pros": ["Complete spending awareness", "Great for debt payoff", "No money 'leaks'"],
+        "cons": ["Requires more time", "Can feel restrictive", "Needs regular adjustments"],
+        "allocation": {
+            "giving": 10,
+            "saving": 10,
+            "housing": 25,
+            "utilities": 10,
+            "food": 10,
+            "transportation": 10,
+            "health": 5,
+            "insurance": 10,
+            "personal": 5,
+            "recreation": 5
+        },
+        "categories": [
+            {"name": "Giving/Charity", "type": "fixed", "percent": 10, "keywords": "donation,charity,tithe,church"},
+            {"name": "Emergency Fund", "type": "savings", "percent": 5, "keywords": "emergency,savings"},
+            {"name": "Retirement", "type": "savings", "percent": 5, "keywords": "401k,ira,retirement"},
+            {"name": "Housing", "type": "fixed", "percent": 25, "keywords": "rent,mortgage,hoa"},
+            {"name": "Utilities", "type": "fixed", "percent": 5, "keywords": "electric,gas,water,trash,internet"},
+            {"name": "Phone", "type": "fixed", "percent": 2, "keywords": "phone,cell,mobile,verizon,att"},
+            {"name": "Groceries", "type": "variable", "percent": 8, "keywords": "grocery,supermarket"},
+            {"name": "Restaurants", "type": "variable", "percent": 4, "keywords": "restaurant,dining,takeout"},
+            {"name": "Gas & Transportation", "type": "variable", "percent": 8, "keywords": "gas,fuel,parking,tolls"},
+            {"name": "Car Payment", "type": "fixed", "percent": 5, "keywords": "car payment,auto loan"},
+            {"name": "Car Insurance", "type": "fixed", "percent": 3, "keywords": "car insurance,auto insurance"},
+            {"name": "Health Insurance", "type": "fixed", "percent": 5, "keywords": "health insurance,medical"},
+            {"name": "Medical", "type": "variable", "percent": 2, "keywords": "doctor,pharmacy,medical"},
+            {"name": "Clothing", "type": "variable", "percent": 3, "keywords": "clothing,clothes,shoes"},
+            {"name": "Personal", "type": "variable", "percent": 3, "keywords": "haircut,personal,toiletries"},
+            {"name": "Entertainment", "type": "variable", "percent": 5, "keywords": "entertainment,netflix,spotify,fun"},
+            {"name": "Debt Payoff", "type": "debt", "percent": 2, "keywords": "loan,debt,credit card"}
+        ]
+    },
+    "pay_yourself_first": {
+        "id": "pay_yourself_first",
+        "name": "Pay Yourself First",
+        "short_description": "Savings-focused",
+        "description": "This method prioritizes saving by automatically setting aside a portion of income before paying bills or spending. The idea is simple: treat savings as a non-negotiable expense. Great for building wealth over time.",
+        "best_for": ["Wealth builders", "People who struggle to save", "Those with stable expenses"],
+        "pros": ["Builds savings automatically", "Simple concept", "Flexible spending"],
+        "cons": ["Requires income stability", "May not help with overspending", "Less detailed tracking"],
+        "allocation": {
+            "savings_first": 20,
+            "everything_else": 80
+        },
+        "categories": [
+            {"name": "Savings (Auto)", "type": "savings", "percent": 10, "keywords": "auto transfer,savings"},
+            {"name": "Investments", "type": "savings", "percent": 10, "keywords": "investment,brokerage,stocks"},
+            {"name": "Fixed Bills", "type": "fixed", "percent": 40, "keywords": "rent,mortgage,utilities,insurance"},
+            {"name": "Daily Living", "type": "variable", "percent": 25, "keywords": "groceries,gas,food,transport"},
+            {"name": "Discretionary", "type": "wants", "percent": 15, "keywords": "entertainment,shopping,dining"}
+        ]
+    },
+    "envelope": {
+        "id": "envelope",
+        "name": "Envelope System",
+        "short_description": "Cash-based categories",
+        "description": "The envelope system allocates cash to specific spending categories. When an envelope is empty, you stop spending in that category. While traditionally cash-based, this digital version tracks virtual 'envelopes' for each category.",
+        "best_for": ["Visual learners", "Overspenders", "Those who need hard limits"],
+        "pros": ["Prevents overspending", "Highly visual", "Creates awareness"],
+        "cons": ["Requires discipline", "Many categories to track", "Less flexible"],
+        "allocation": {
+            "by_category": True
+        },
+        "categories": [
+            {"name": "Groceries", "type": "envelope", "percent": 12, "keywords": "grocery,food,supermarket"},
+            {"name": "Gas", "type": "envelope", "percent": 8, "keywords": "gas,fuel"},
+            {"name": "Dining Out", "type": "envelope", "percent": 5, "keywords": "restaurant,coffee,cafe"},
+            {"name": "Entertainment", "type": "envelope", "percent": 5, "keywords": "movies,games,fun"},
+            {"name": "Clothing", "type": "envelope", "percent": 4, "keywords": "clothes,shoes,apparel"},
+            {"name": "Personal Care", "type": "envelope", "percent": 3, "keywords": "haircut,beauty,salon"},
+            {"name": "Gifts", "type": "envelope", "percent": 3, "keywords": "gift,present,birthday"},
+            {"name": "Household", "type": "envelope", "percent": 5, "keywords": "home,supplies,cleaning"},
+            {"name": "Medical", "type": "envelope", "percent": 5, "keywords": "doctor,pharmacy,health"},
+            {"name": "Savings", "type": "savings", "percent": 15, "keywords": "savings,transfer"},
+            {"name": "Fixed Expenses", "type": "fixed", "percent": 35, "keywords": "rent,utilities,insurance,bills"}
+        ]
+    },
+    "minimalist": {
+        "id": "minimalist",
+        "name": "Minimalist Budget",
+        "short_description": "Just the essentials",
+        "description": "A simplified approach with only a few categories. Perfect for people who find detailed budgets overwhelming. Focus on the big picture: bills, spending money, and savings.",
+        "best_for": ["Busy people", "Those overwhelmed by detail", "People who want low maintenance"],
+        "pros": ["Very simple", "Low maintenance", "Easy to stick to"],
+        "cons": ["Less detailed insights", "May miss spending patterns", "Less control"],
+        "allocation": {
+            "bills": 50,
+            "spending": 30,
+            "savings": 20
+        },
+        "categories": [
+            {"name": "Bills & Essentials", "type": "fixed", "percent": 50, "keywords": "rent,mortgage,utilities,insurance,groceries,gas"},
+            {"name": "Spending Money", "type": "variable", "percent": 30, "keywords": "shopping,dining,entertainment,personal"},
+            {"name": "Savings & Goals", "type": "savings", "percent": 20, "keywords": "savings,investment,transfer"}
+        ]
+    }
+}
+
+
+class OnboardingSetupRequest(BaseModel):
+    budgeting_method: str
+    monthly_income: float
+    accounts: Optional[List[dict]] = None
+    category_adjustments: Optional[Dict[str, float]] = None  # category_name -> budget_amount
+    savings_target_percent: float = 20
+    emergency_fund_months: int = 6
+
+
+@app.get("/api/onboarding/methods")
+def get_budgeting_methods():
+    """Get all available budgeting methods with descriptions."""
+    methods = []
+    for method_id, method in BUDGETING_METHODS.items():
+        methods.append({
+            "id": method["id"],
+            "name": method["name"],
+            "short_description": method["short_description"],
+            "description": method["description"],
+            "best_for": method["best_for"],
+            "pros": method["pros"],
+            "cons": method["cons"]
+        })
+    return methods
+
+
+@app.get("/api/onboarding/methods/{method_id}")
+def get_budgeting_method_details(method_id: str):
+    """Get detailed info for a specific budgeting method including category templates."""
+    if method_id not in BUDGETING_METHODS:
+        raise HTTPException(status_code=404, detail="Budgeting method not found")
+    return BUDGETING_METHODS[method_id]
+
+
+@app.get("/api/onboarding/methods/{method_id}/preview")
+def preview_budget_allocation(
+    method_id: str,
+    monthly_income: float = Query(..., description="Monthly after-tax income")
+):
+    """Preview how income would be allocated with a specific budgeting method."""
+    if method_id not in BUDGETING_METHODS:
+        raise HTTPException(status_code=404, detail="Budgeting method not found")
+
+    method = BUDGETING_METHODS[method_id]
+    categories_preview = []
+
+    for cat in method["categories"]:
+        budget = round(monthly_income * (cat["percent"] / 100), 2)
+        categories_preview.append({
+            "name": cat["name"],
+            "type": cat["type"],
+            "percent": cat["percent"],
+            "budget_amount": budget,
+            "keywords": cat.get("keywords", "")
+        })
+
+    # Calculate totals by type
+    totals = {}
+    for cat in categories_preview:
+        cat_type = cat["type"]
+        if cat_type not in totals:
+            totals[cat_type] = 0
+        totals[cat_type] += cat["budget_amount"]
+
+    return {
+        "method": method["name"],
+        "monthly_income": monthly_income,
+        "categories": categories_preview,
+        "totals_by_type": totals
+    }
+
+
+@app.post("/api/onboarding/setup")
+def apply_onboarding_setup(
+    request: OnboardingSetupRequest,
+    service: BudgetService = Depends(get_service)
+):
+    """Apply the complete onboarding setup - creates categories, accounts, and budget settings."""
+    if request.budgeting_method not in BUDGETING_METHODS:
+        raise HTTPException(status_code=400, detail="Invalid budgeting method")
+
+    method = BUDGETING_METHODS[request.budgeting_method]
+    results = {"categories_created": 0, "accounts_created": 0}
+
+    # Update budget settings
+    service.store.update_budget_settings({
+        "monthly_income": request.monthly_income,
+        "savings_target_percent": request.savings_target_percent,
+        "emergency_fund_months": request.emergency_fund_months,
+        "budgeting_method": request.budgeting_method
+    })
+
+    # Create categories from template
+    for cat in method["categories"]:
+        # Check for custom adjustment
+        budget = round(request.monthly_income * (cat["percent"] / 100), 2)
+        if request.category_adjustments and cat["name"] in request.category_adjustments:
+            budget = request.category_adjustments[cat["name"]]
+
+        try:
+            service.store.add_category(
+                name=cat["name"],
+                keywords=cat.get("keywords"),
+                budget_amount=budget
+            )
+            results["categories_created"] += 1
+        except Exception:
+            # Category might already exist - update it instead
+            existing = service.store.get_category_by_name(cat["name"])
+            if existing:
+                service.store.update_category(
+                    existing["id"],
+                    keywords=cat.get("keywords"),
+                    budget_amount=budget
+                )
+
+    # Create accounts if provided
+    if request.accounts:
+        for acc in request.accounts:
+            try:
+                service.store.add_account(
+                    name=acc["name"],
+                    institution=acc.get("institution"),
+                    account_type=acc.get("account_type", "checking"),
+                    last_four=acc.get("last_four"),
+                    color=acc.get("color", "#3B82F6"),
+                    initial_balance=acc.get("initial_balance", 0)
+                )
+                results["accounts_created"] += 1
+            except Exception:
+                pass  # Skip if account already exists
+
+    # Mark onboarding as complete
+    service.store.complete_onboarding()
+
+    return {
+        "success": True,
+        "message": f"Setup complete! Created {results['categories_created']} categories and {results['accounts_created']} accounts.",
+        "results": results,
+        "method_applied": method["name"]
+    }
+
+
+@app.get("/api/onboarding/tips")
+def get_money_management_tips():
+    """Get educational tips about money management."""
+    return {
+        "emergency_fund": {
+            "title": "Emergency Fund",
+            "description": "An emergency fund is money set aside for unexpected expenses like medical bills, car repairs, or job loss.",
+            "recommendation": "Aim to save 3-6 months of essential expenses.",
+            "tips": [
+                "Start small - even $500 can cover minor emergencies",
+                "Keep it in a high-yield savings account for easy access",
+                "Only use it for true emergencies, not planned expenses"
+            ]
+        },
+        "debt_payoff": {
+            "title": "Debt Payoff Strategies",
+            "description": "There are two popular methods for paying off debt.",
+            "methods": {
+                "avalanche": {
+                    "name": "Debt Avalanche",
+                    "description": "Pay off highest interest debt first",
+                    "pros": "Saves the most money on interest",
+                    "cons": "May take longer to see progress"
+                },
+                "snowball": {
+                    "name": "Debt Snowball",
+                    "description": "Pay off smallest balance first",
+                    "pros": "Quick wins build motivation",
+                    "cons": "May pay more interest overall"
+                }
+            }
+        },
+        "savings_goals": {
+            "title": "Setting Savings Goals",
+            "description": "Having specific goals makes saving easier and more rewarding.",
+            "common_goals": [
+                {"name": "Emergency Fund", "typical_target": "3-6 months expenses", "priority": "High"},
+                {"name": "Vacation", "typical_target": "$1,000-5,000", "priority": "Medium"},
+                {"name": "New Car", "typical_target": "$5,000-15,000", "priority": "Medium"},
+                {"name": "Home Down Payment", "typical_target": "10-20% of home price", "priority": "Long-term"},
+                {"name": "Retirement", "typical_target": "15% of income yearly", "priority": "Ongoing"}
+            ]
+        },
+        "spending_awareness": {
+            "title": "Spending Awareness",
+            "description": "Understanding where your money goes is the first step to financial health.",
+            "tips": [
+                "Track every expense for at least one month",
+                "Review subscriptions regularly - cancel unused ones",
+                "Wait 24-48 hours before impulse purchases over $50",
+                "Use the 'cost per use' mindset for big purchases"
+            ]
+        }
+    }
+
+
 # === Admin API ===
 
 @app.post("/api/admin/reset")

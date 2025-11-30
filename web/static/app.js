@@ -432,6 +432,28 @@ function app() {
         onboardingStatus: null,
         onboardingMode: false,
 
+        // Onboarding Wizard
+        showOnboardingWizard: false,
+        wizardStep: 1, // 1=welcome, 2=method, 3=income, 4=accounts, 5=categories, 6=goals, 7=import, 8=complete
+        wizardLoading: false,
+        budgetingMethods: [],
+        selectedMethod: null,
+        selectedMethodDetails: null,
+        wizardIncome: '',
+        wizardIncomeFrequency: 'monthly',
+        wizardAccounts: [],
+        wizardNewAccount: {
+            name: '',
+            institution: '',
+            account_type: 'checking',
+            initial_balance: 0
+        },
+        wizardCategoryPreview: [],
+        wizardCategoryAdjustments: {},
+        wizardTips: null,
+        wizardCreateEmergencyFund: true,
+        wizardEmergencyFundTarget: 0,
+
         // Chat file upload
         chatFileDropActive: false,
         chatPendingFile: null,
@@ -476,20 +498,256 @@ function app() {
                 this.onboardingStatus = await this.api('/onboarding/status');
                 if (this.onboardingStatus.needs_onboarding) {
                     this.onboardingMode = true;
-                    this.startOnboardingChat();
+                    this.startOnboardingWizard();
                 }
             } catch (e) {
                 console.error('Failed to check onboarding status:', e);
             }
         },
 
-        // Start onboarding chat with welcome message
+        // Start onboarding wizard
+        async startOnboardingWizard() {
+            this.showOnboardingWizard = true;
+            this.wizardStep = 1;
+            this.wizardLoading = true;
+
+            try {
+                // Load budgeting methods and tips
+                const [methods, tips] = await Promise.all([
+                    this.api('/onboarding/methods'),
+                    this.api('/onboarding/tips')
+                ]);
+                this.budgetingMethods = methods;
+                this.wizardTips = tips;
+            } catch (e) {
+                console.error('Failed to load onboarding data:', e);
+            } finally {
+                this.wizardLoading = false;
+            }
+        },
+
+        // Legacy: Start onboarding chat with welcome message (kept for compatibility)
         startOnboardingChat() {
             this.chatOpen = true;
             this.chatMessages = [{
                 role: 'assistant',
                 content: "Welcome to Budget Tracker! I'm here to help you get set up.\n\nWe'll configure your income, accounts, and categories. You can also drag-and-drop CSV files from your bank to import transactions.\n\nLet's start with your monthly income. How much do you earn per month (after taxes)?"
             }];
+        },
+
+        // === Onboarding Wizard Methods ===
+
+        wizardNext() {
+            if (this.wizardStep < 8) {
+                // Validation before advancing
+                if (this.wizardStep === 2 && !this.selectedMethod) {
+                    alert('Please select a budgeting method');
+                    return;
+                }
+                if (this.wizardStep === 3 && (!this.wizardIncome || parseFloat(this.wizardIncome) <= 0)) {
+                    alert('Please enter your monthly income');
+                    return;
+                }
+
+                this.wizardStep++;
+
+                // Load category preview when moving to categories step
+                if (this.wizardStep === 5 && this.selectedMethod) {
+                    this.loadCategoryPreview();
+                }
+
+                // Calculate emergency fund target when moving to goals step
+                if (this.wizardStep === 6) {
+                    const monthlyIncome = this.getMonthlyIncome();
+                    this.wizardEmergencyFundTarget = Math.round(monthlyIncome * 3); // 3 months
+                }
+            }
+        },
+
+        wizardBack() {
+            if (this.wizardStep > 1) {
+                this.wizardStep--;
+            }
+        },
+
+        async selectBudgetingMethod(methodId) {
+            this.selectedMethod = methodId;
+            this.wizardLoading = true;
+
+            try {
+                this.selectedMethodDetails = await this.api(`/onboarding/methods/${methodId}`);
+            } catch (e) {
+                console.error('Failed to load method details:', e);
+            } finally {
+                this.wizardLoading = false;
+            }
+        },
+
+        getMonthlyIncome() {
+            const income = parseFloat(this.wizardIncome) || 0;
+            switch (this.wizardIncomeFrequency) {
+                case 'weekly': return income * 4.33;
+                case 'biweekly': return income * 2.17;
+                case 'semimonthly': return income * 2;
+                case 'monthly': return income;
+                case 'yearly': return income / 12;
+                default: return income;
+            }
+        },
+
+        async loadCategoryPreview() {
+            if (!this.selectedMethod || !this.wizardIncome) return;
+
+            this.wizardLoading = true;
+            try {
+                const monthlyIncome = this.getMonthlyIncome();
+                const preview = await this.api(`/onboarding/methods/${this.selectedMethod}/preview?monthly_income=${monthlyIncome}`);
+                this.wizardCategoryPreview = preview.categories;
+
+                // Initialize adjustments
+                this.wizardCategoryAdjustments = {};
+                preview.categories.forEach(cat => {
+                    this.wizardCategoryAdjustments[cat.name] = cat.budget_amount;
+                });
+            } catch (e) {
+                console.error('Failed to load category preview:', e);
+            } finally {
+                this.wizardLoading = false;
+            }
+        },
+
+        addWizardAccount() {
+            if (!this.wizardNewAccount.name.trim()) {
+                alert('Please enter an account name');
+                return;
+            }
+
+            this.wizardAccounts.push({
+                name: this.wizardNewAccount.name.trim(),
+                institution: this.wizardNewAccount.institution.trim() || null,
+                account_type: this.wizardNewAccount.account_type,
+                initial_balance: parseFloat(this.wizardNewAccount.initial_balance) || 0,
+                color: this.getAccountColor(this.wizardAccounts.length)
+            });
+
+            // Reset form
+            this.wizardNewAccount = {
+                name: '',
+                institution: '',
+                account_type: 'checking',
+                initial_balance: 0
+            };
+        },
+
+        removeWizardAccount(index) {
+            this.wizardAccounts.splice(index, 1);
+        },
+
+        getAccountColor(index) {
+            const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+            return colors[index % colors.length];
+        },
+
+        updateCategoryBudget(categoryName, newAmount) {
+            this.wizardCategoryAdjustments[categoryName] = parseFloat(newAmount) || 0;
+        },
+
+        getTotalBudgetAllocated() {
+            return Object.values(this.wizardCategoryAdjustments).reduce((sum, amt) => sum + (parseFloat(amt) || 0), 0);
+        },
+
+        getBudgetAllocationPercent() {
+            const monthlyIncome = this.getMonthlyIncome();
+            if (!monthlyIncome) return 0;
+            return Math.round((this.getTotalBudgetAllocated() / monthlyIncome) * 100);
+        },
+
+        async completeOnboardingWizard() {
+            this.wizardLoading = true;
+
+            try {
+                const setupData = {
+                    budgeting_method: this.selectedMethod,
+                    monthly_income: this.getMonthlyIncome(),
+                    accounts: this.wizardAccounts.length > 0 ? this.wizardAccounts : null,
+                    category_adjustments: this.wizardCategoryAdjustments,
+                    savings_target_percent: 20,
+                    emergency_fund_months: 6
+                };
+
+                await this.api('/onboarding/setup', {
+                    method: 'POST',
+                    body: JSON.stringify(setupData)
+                });
+
+                // Create emergency fund goal if selected
+                if (this.wizardCreateEmergencyFund && this.wizardEmergencyFundTarget > 0) {
+                    try {
+                        await this.api('/goals', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: 'Emergency Fund',
+                                description: '3-6 months of essential expenses for unexpected emergencies',
+                                target_amount: this.wizardEmergencyFundTarget,
+                                color: '#EF4444',
+                                icon: 'emergency'
+                            })
+                        });
+                    } catch (e) {
+                        console.log('Could not create emergency fund goal:', e);
+                    }
+                }
+
+                // Move to completion step
+                this.wizardStep = 8;
+
+            } catch (e) {
+                console.error('Failed to complete onboarding:', e);
+                alert('There was an error completing setup. Please try again.');
+            } finally {
+                this.wizardLoading = false;
+            }
+        },
+
+        async finishOnboardingWizard() {
+            this.showOnboardingWizard = false;
+            this.onboardingMode = false;
+
+            // Reload all data
+            await this.loadAll();
+        },
+
+        skipOnboarding() {
+            if (confirm('Are you sure you want to skip setup? You can always configure these settings later in the Settings tab.')) {
+                this.showOnboardingWizard = false;
+                this.onboardingMode = false;
+                // Mark as complete so it doesn't show again
+                this.api('/onboarding/complete', { method: 'POST' });
+            }
+        },
+
+        getMethodIcon(methodId) {
+            const icons = {
+                'fifty_thirty_twenty': '50/30/20',
+                'zero_based': '$0',
+                'pay_yourself_first': '$$',
+                'envelope': '[]',
+                'minimalist': '~'
+            };
+            return icons[methodId] || '?';
+        },
+
+        getCategoryTypeColor(type) {
+            const colors = {
+                'needs': 'bg-blue-600',
+                'wants': 'bg-purple-600',
+                'savings': 'bg-green-600',
+                'fixed': 'bg-gray-600',
+                'variable': 'bg-yellow-600',
+                'envelope': 'bg-pink-600',
+                'debt': 'bg-red-600'
+            };
+            return colors[type] || 'bg-gray-600';
         },
 
         // API helper
