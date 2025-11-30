@@ -4,6 +4,7 @@ import subprocess
 import json
 import uuid
 import shutil
+import re
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
@@ -172,9 +173,12 @@ class TransactionSplitRequest(BaseModel):
 
 class ColumnMappingRequest(BaseModel):
     date_column: str
-    amount_column: str
+    amount_column: Optional[str] = None  # For single amount column
     merchant_column: str
     description_column: Optional[str] = None
+    # For split debit/credit columns (like Capital One, PNC, etc.)
+    debit_column: Optional[str] = None
+    credit_column: Optional[str] = None
 
 
 class ImportConfirmRequest(BaseModel):
@@ -642,7 +646,9 @@ def _detect_column_mapping(columns: List[str]) -> Dict[str, Optional[str]]:
 
 @app.post("/api/import/preview")
 async def import_preview(file: UploadFile = File(...)):
-    """Upload file for preview - returns headers, sample rows, and detected mapping."""
+    """Upload file for preview - returns comprehensive analysis including bank detection."""
+    from ingestion.csv_parser import CSVParser
+
     # Generate session ID
     session_id = str(uuid.uuid4())
 
@@ -656,55 +662,53 @@ async def import_preview(file: UploadFile = File(...)):
     tmp_path.write_bytes(content)
 
     try:
-        # Read file with pandas
+        # Use enhanced CSV parser for analysis
+        parser = CSVParser()
+        analysis = parser.analyze_file(tmp_path, filename=file.filename)
+
+        if "error" in analysis:
+            tmp_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=analysis["error"])
+
+        # Get more sample rows for preview
         if suffix.lower() in [".xlsx", ".xls"]:
             df = pd.read_excel(tmp_path)
         else:
-            # Try to detect header row
-            with open(tmp_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
-
-            header_row = 0
-            pandas_row = 0
-            for line in lines[:20]:
-                lower = line.lower().strip()
-                if not lower:
-                    continue
-                if ',' in lower and any(col in lower for col in ["date", "amount", "merchant", "payee", "description"]):
-                    header_row = pandas_row
-                    break
-                pandas_row += 1
-
-            df = pd.read_csv(tmp_path, header=header_row)
-
-        # Get columns and sample data
-        columns = [str(c) for c in df.columns.tolist()]
+            df = pd.read_csv(tmp_path)
 
         # Get sample rows (first 10)
         sample_rows = []
         for _, row in df.head(10).iterrows():
-            sample_rows.append({col: str(val) if not pd.isna(val) else "" for col, val in row.items()})
+            sample_rows.append({str(col): str(val) if not pd.isna(val) else "" for col, val in row.items()})
 
-        # Auto-detect column mapping
-        detected_mapping = _detect_column_mapping(columns)
-
-        # Store session data
+        # Store session data with enhanced info
         _import_sessions[session_id] = {
             "file_path": str(tmp_path),
-            "columns": columns,
-            "total_rows": len(df),
-            "detected_mapping": detected_mapping
+            "columns": analysis["columns"],
+            "total_rows": analysis["total_rows"],
+            "detected_mapping": analysis["detected_mapping"],
+            "format": analysis["format"],
+            "account_type": analysis["account_type"],
+            "has_split_amounts": analysis["has_split_amounts"]
         }
 
+        # Build response with all analysis info
         return {
             "session_id": session_id,
             "filename": file.filename,
-            "columns": columns,
+            "columns": analysis["columns"],
             "sample_rows": sample_rows,
-            "total_rows": len(df),
-            "detected_mapping": detected_mapping
+            "total_rows": analysis["total_rows"],
+            # Enhanced detection info
+            "detected_mapping": analysis["detected_mapping"],
+            "format": analysis["format"],
+            "account_type": analysis["account_type"],
+            "has_split_amounts": analysis["has_split_amounts"],
+            "analysis": analysis["analysis"]
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         # Clean up on error
         tmp_path.unlink(missing_ok=True)
@@ -753,15 +757,69 @@ async def import_confirm(
         transactions = []
         errors = []
 
+        # Helper function to parse amount values
+        def parse_amount_value(val):
+            """Parse an amount value, handling various formats."""
+            if pd.isna(val) or val == '' or val is None:
+                return 0.0
+            if isinstance(val, (int, float)):
+                return float(val)
+            amount_str = re.sub(r'[$,]', '', str(val).strip())
+            if not amount_str or amount_str == '-':
+                return 0.0
+            # Handle accounting format (negative in parentheses)
+            if amount_str.startswith('(') and amount_str.endswith(')'):
+                amount_str = '-' + amount_str[1:-1]
+            try:
+                return float(amount_str)
+            except ValueError:
+                return None
+
+        # Check if we're using split debit/credit columns
+        use_split_columns = mapping.debit_column and mapping.credit_column
+
         for idx, row in df.iterrows():
             try:
                 date_val = row.get(mapping.date_column)
-                amount_val = row.get(mapping.amount_column)
                 merchant_val = row.get(mapping.merchant_column)
                 desc_val = row.get(mapping.description_column) if mapping.description_column else None
 
-                # Skip if critical values missing
-                if pd.isna(date_val) or pd.isna(amount_val):
+                # Handle amount: either split columns or single amount column
+                if use_split_columns:
+                    debit_val = row.get(mapping.debit_column)
+                    credit_val = row.get(mapping.credit_column)
+
+                    debit = parse_amount_value(debit_val)
+                    credit = parse_amount_value(credit_val)
+
+                    if debit is None and credit is None:
+                        errors.append(f"Row {idx+1}: Invalid debit/credit values")
+                        continue
+
+                    debit = debit or 0.0
+                    credit = credit or 0.0
+
+                    # Calculate amount: credit (income/refunds) - debit (spending)
+                    # This makes expenses negative and income positive
+                    amount = credit - debit
+
+                    # Skip rows with no activity
+                    if amount == 0 and debit == 0 and credit == 0:
+                        continue
+                else:
+                    amount_val = row.get(mapping.amount_column)
+
+                    # Skip if critical values missing
+                    if pd.isna(amount_val):
+                        continue
+
+                    amount = parse_amount_value(amount_val)
+                    if amount is None:
+                        errors.append(f"Row {idx+1}: Invalid amount")
+                        continue
+
+                # Skip if date is missing
+                if pd.isna(date_val):
                     continue
 
                 # Normalize date
@@ -785,20 +843,6 @@ async def import_confirm(
                         except:
                             errors.append(f"Row {idx+1}: Invalid date format")
                             continue
-
-                # Normalize amount
-                import re
-                if isinstance(amount_val, (int, float)):
-                    amount = float(amount_val)
-                else:
-                    amount_str = re.sub(r'[$,]', '', str(amount_val).strip())
-                    if amount_str.startswith('(') and amount_str.endswith(')'):
-                        amount_str = '-' + amount_str[1:-1]
-                    try:
-                        amount = float(amount_str)
-                    except ValueError:
-                        errors.append(f"Row {idx+1}: Invalid amount")
-                        continue
 
                 merchant = str(merchant_val).strip() if not pd.isna(merchant_val) else "UNKNOWN"
                 description = str(desc_val).strip() if desc_val and not pd.isna(desc_val) else None
