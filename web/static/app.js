@@ -434,7 +434,7 @@ function app() {
 
         // Onboarding Wizard
         showOnboardingWizard: false,
-        wizardStep: 1, // 1=welcome, 2=method, 3=income, 4=accounts, 5=categories, 6=goals, 7=import, 8=complete
+        wizardStep: 1, // 1=welcome, 2=csv-import, 3=method, 4=income, 5=accounts, 6=categories, 7=goals, 8=complete
         wizardLoading: false,
         budgetingMethods: [],
         selectedMethod: null,
@@ -446,13 +446,25 @@ function app() {
             name: '',
             institution: '',
             account_type: 'checking',
-            initial_balance: 0
+            initial_balance: 0,
+            balance_as_of_date: new Date().toISOString().split('T')[0]  // Today's date
         },
         wizardCategoryPreview: [],
         wizardCategoryAdjustments: {},
         wizardTips: null,
         wizardCreateEmergencyFund: true,
         wizardEmergencyFundTarget: 0,
+
+        // CSV Analysis from onboarding
+        csvAnalysis: null,  // Results from CSV analysis API
+        csvSessionId: null, // Session ID for later import
+        csvImportResult: null, // Result of transaction import
+        csvColumns: [],     // Columns detected from uploaded CSV
+        csvSampleRows: [],  // Sample rows for preview
+        csvFilename: '',    // Name of uploaded file
+        selectedDateCol: '',     // User's selected date column
+        selectedAmountCol: '',   // User's selected amount column
+        selectedDescCol: '',     // User's selected description column
 
         // Chat file upload
         chatFileDropActive: false,
@@ -469,6 +481,7 @@ function app() {
         newAccountLastFour: '',
         newAccountColor: '#3B82F6',
         newAccountInitialBalance: 0,
+        newAccountBalanceAsOfDate: new Date().toISOString().split('T')[0],
 
         // Initialize
         async init() {
@@ -540,24 +553,35 @@ function app() {
         wizardNext() {
             if (this.wizardStep < 8) {
                 // Validation before advancing
-                if (this.wizardStep === 2 && !this.selectedMethod) {
+                // Step 2 (CSV import) - no validation needed, optional
+                // Step 3 (budgeting method) - needs selectedMethod
+                if (this.wizardStep === 3 && !this.selectedMethod) {
                     alert('Please select a budgeting method');
                     return;
                 }
-                if (this.wizardStep === 3 && (!this.wizardIncome || parseFloat(this.wizardIncome) <= 0)) {
+                // Step 4 (income) - needs wizardIncome
+                if (this.wizardStep === 4 && (!this.wizardIncome || parseFloat(this.wizardIncome) <= 0)) {
                     alert('Please enter your monthly income');
                     return;
                 }
 
                 this.wizardStep++;
 
-                // Load category preview when moving to categories step
-                if (this.wizardStep === 5 && this.selectedMethod) {
+                // Auto-fill income from CSV when entering step 4 (income step)
+                if (this.wizardStep === 4 && this.csvAnalysis && this.csvAnalysis.income) {
+                    if (!this.wizardIncome || parseFloat(this.wizardIncome) === 0) {
+                        this.wizardIncome = Math.round(this.csvAnalysis.income.estimated_monthly);
+                        this.wizardIncomeFrequency = 'monthly';
+                    }
+                }
+
+                // Load category preview when moving to categories step (step 6)
+                if (this.wizardStep === 6 && this.selectedMethod) {
                     this.loadCategoryPreview();
                 }
 
-                // Calculate emergency fund target when moving to goals step
-                if (this.wizardStep === 6) {
+                // Calculate emergency fund target when moving to goals step (step 7)
+                if (this.wizardStep === 7) {
                     const monthlyIncome = this.getMonthlyIncome();
                     this.wizardEmergencyFundTarget = Math.round(monthlyIncome * 3); // 3 months
                 }
@@ -567,6 +591,145 @@ function app() {
         wizardBack() {
             if (this.wizardStep > 1) {
                 this.wizardStep--;
+            }
+        },
+
+        // CSV Upload handlers for wizard step 2
+        async handleWizardCsvUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                await this.analyzeWizardCsv(file);
+            }
+        },
+
+        async handleWizardCsvDrop(event) {
+            const file = event.dataTransfer.files[0];
+            if (file && file.name.endsWith('.csv')) {
+                await this.analyzeWizardCsv(file);
+            }
+        },
+
+        async analyzeWizardCsv(file) {
+            this.wizardLoading = true;
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // Step 1: Upload CSV and get column headers
+                const response = await fetch('/api/onboarding/csv-upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to upload CSV');
+                }
+
+                const result = await response.json();
+                this.csvSessionId = result.session_id;
+                this.csvColumns = result.columns;
+                this.csvSampleRows = result.sample_rows;
+                this.csvFilename = result.filename;
+
+                // Reset column selections
+                this.selectedDateCol = '';
+                this.selectedAmountCol = '';
+                this.selectedDescCol = '';
+                this.csvAnalysis = null;
+
+                console.log('CSV Upload:', result);
+            } catch (e) {
+                console.error('Failed to upload CSV:', e);
+                alert('Failed to read CSV file. Please make sure it\'s a valid CSV.');
+            } finally {
+                this.wizardLoading = false;
+            }
+        },
+
+        async submitColumnMapping() {
+            if (!this.selectedDateCol || !this.selectedAmountCol || !this.selectedDescCol) {
+                alert('Please select all three columns: Date, Amount, and Description');
+                return;
+            }
+
+            this.wizardLoading = true;
+            try {
+                const response = await fetch('/api/onboarding/analyze-csv', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: this.csvSessionId,
+                        date_column: this.selectedDateCol,
+                        amount_column: this.selectedAmountCol,
+                        description_column: this.selectedDescCol
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Analysis failed');
+                }
+
+                const analysis = await response.json();
+                this.csvAnalysis = analysis;
+
+                console.log('CSV Analysis:', analysis);
+            } catch (e) {
+                console.error('Failed to analyze CSV:', e);
+                alert('Failed to analyze CSV: ' + e.message);
+            } finally {
+                this.wizardLoading = false;
+            }
+        },
+
+        resetCsvUpload() {
+            this.csvAnalysis = null;
+            this.csvSessionId = null;
+            this.csvImportResult = null;
+            this.csvColumns = [];
+            this.csvSampleRows = [];
+            this.csvFilename = '';
+            this.selectedDateCol = '';
+            this.selectedAmountCol = '';
+            this.selectedDescCol = '';
+        },
+
+        async importCsvTransactions() {
+            if (!this.csvSessionId) {
+                alert('No CSV session found. Please upload a CSV file first.');
+                return;
+            }
+
+            this.wizardLoading = true;
+            try {
+                const response = await fetch('/api/onboarding/import-csv', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: this.csvSessionId,
+                        date_column: this.selectedDateCol,
+                        amount_column: this.selectedAmountCol,
+                        description_column: this.selectedDescCol
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Import failed');
+                }
+
+                const result = await response.json();
+                this.csvImportResult = result;
+
+                console.log('CSV Import Result:', result);
+
+                // Refresh transactions list
+                await this.loadTransactions();
+            } catch (e) {
+                console.error('Failed to import CSV:', e);
+                alert('Failed to import transactions: ' + e.message);
+            } finally {
+                this.wizardLoading = false;
             }
         },
 
@@ -604,11 +767,49 @@ function app() {
                 const preview = await this.api(`/onboarding/methods/${this.selectedMethod}/preview?monthly_income=${monthlyIncome}`);
                 this.wizardCategoryPreview = preview.categories;
 
-                // Initialize adjustments
+                // Initialize adjustments from method preview
                 this.wizardCategoryAdjustments = {};
                 preview.categories.forEach(cat => {
                     this.wizardCategoryAdjustments[cat.name] = cat.budget_amount;
                 });
+
+                // If CSV analysis exists, override with actual spending data
+                if (this.csvAnalysis && this.csvAnalysis.spending && this.csvAnalysis.spending.by_category) {
+                    const csvSpending = this.csvAnalysis.spending.by_category;
+
+                    // Map CSV categories to preview categories
+                    const categoryMap = {
+                        'Groceries': 'Food & Dining',
+                        'Food & Dining': 'Food & Dining',
+                        'Dining Out': 'Food & Dining',
+                        'Transportation': 'Transportation',
+                        'Gas': 'Transportation',
+                        'Utilities': 'Utilities',
+                        'Entertainment': 'Entertainment',
+                        'Shopping': 'Shopping',
+                        'Healthcare': 'Healthcare',
+                        'Insurance': 'Insurance',
+                        'Personal Care': 'Personal Care',
+                        'Subscriptions': 'Subscriptions'
+                    };
+
+                    // Update adjustments based on CSV spending
+                    Object.entries(csvSpending).forEach(([csvCategory, amount]) => {
+                        const mappedCategory = categoryMap[csvCategory] || csvCategory;
+                        if (this.wizardCategoryAdjustments.hasOwnProperty(mappedCategory)) {
+                            // Use the higher of actual spending or method suggestion
+                            this.wizardCategoryAdjustments[mappedCategory] = Math.max(
+                                this.wizardCategoryAdjustments[mappedCategory],
+                                Math.round(amount)
+                            );
+                        } else if (this.wizardCategoryAdjustments.hasOwnProperty(csvCategory)) {
+                            this.wizardCategoryAdjustments[csvCategory] = Math.max(
+                                this.wizardCategoryAdjustments[csvCategory],
+                                Math.round(amount)
+                            );
+                        }
+                    });
+                }
             } catch (e) {
                 console.error('Failed to load category preview:', e);
             } finally {
@@ -627,6 +828,7 @@ function app() {
                 institution: this.wizardNewAccount.institution.trim() || null,
                 account_type: this.wizardNewAccount.account_type,
                 initial_balance: parseFloat(this.wizardNewAccount.initial_balance) || 0,
+                balance_as_of_date: this.wizardNewAccount.balance_as_of_date || new Date().toISOString().split('T')[0],
                 color: this.getAccountColor(this.wizardAccounts.length)
             });
 
@@ -635,7 +837,8 @@ function app() {
                 name: '',
                 institution: '',
                 account_type: 'checking',
-                initial_balance: 0
+                initial_balance: 0,
+                balance_as_of_date: new Date().toISOString().split('T')[0]
             };
         },
 
@@ -1274,6 +1477,7 @@ function app() {
             this.newAccountLastFour = '';
             this.newAccountColor = '#3B82F6';
             this.newAccountInitialBalance = 0;
+            this.newAccountBalanceAsOfDate = new Date().toISOString().split('T')[0];
             this.showAccountModal = true;
         },
 
@@ -1285,6 +1489,7 @@ function app() {
             this.newAccountLastFour = account.last_four || '';
             this.newAccountColor = account.color || '#3B82F6';
             this.newAccountInitialBalance = account.initial_balance || 0;
+            this.newAccountBalanceAsOfDate = account.balance_as_of_date || new Date().toISOString().split('T')[0];
             this.showAccountModal = true;
         },
 
@@ -1297,6 +1502,7 @@ function app() {
             this.newAccountLastFour = '';
             this.newAccountColor = '#3B82F6';
             this.newAccountInitialBalance = 0;
+            this.newAccountBalanceAsOfDate = new Date().toISOString().split('T')[0];
         },
 
         async saveAccount() {
@@ -1309,7 +1515,8 @@ function app() {
                     account_type: this.newAccountType,
                     last_four: this.newAccountLastFour.trim() || null,
                     color: this.newAccountColor,
-                    initial_balance: this.newAccountInitialBalance || 0
+                    initial_balance: this.newAccountInitialBalance || 0,
+                    balance_as_of_date: this.newAccountBalanceAsOfDate || null
                 };
 
                 if (this.editingAccount) {
@@ -2340,7 +2547,7 @@ function app() {
 
         async loadSavingsGoals() {
             try {
-                const response = await this.api('/api/goals');
+                const response = await this.api('/goals');
                 this.savingsGoals = response || [];
             } catch (e) {
                 console.error('Failed to load savings goals:', e);
@@ -2418,9 +2625,9 @@ function app() {
 
             try {
                 if (this.editingGoal) {
-                    await this.api(`/api/goals/${this.editingGoal.id}`, 'PUT', payload);
+                    await this.api(`/goals/${this.editingGoal.id}`, 'PUT', payload);
                 } else {
-                    await this.api('/api/goals', 'POST', payload);
+                    await this.api('/goals', 'POST', payload);
                 }
                 await this.loadSavingsGoals();
                 this.closeGoalModal();
@@ -2434,7 +2641,7 @@ function app() {
                 return;
             }
             try {
-                await this.api(`/api/goals/${goalId}`, 'DELETE');
+                await this.api(`/goals/${goalId}`, 'DELETE');
                 await this.loadSavingsGoals();
             } catch (e) {
                 alert('Failed to delete goal: ' + e.message);
@@ -2457,7 +2664,7 @@ function app() {
 
         async loadGoalContributions(goalId) {
             try {
-                const response = await this.api(`/api/goals/${goalId}/contributions`);
+                const response = await this.api(`/goals/${goalId}/contributions`);
                 this.goalContributions = response || [];
             } catch (e) {
                 console.error('Failed to load contributions:', e);
@@ -2478,7 +2685,7 @@ function app() {
             }
 
             try {
-                await this.api(`/api/goals/${this.contributionGoal.id}/contributions`, 'POST', {
+                await this.api(`/goals/${this.contributionGoal.id}/contributions`, 'POST', {
                     amount: amount,
                     note: this.contributionNote || null
                 });
@@ -2499,7 +2706,7 @@ function app() {
         async deleteContribution(contributionId) {
             if (!confirm('Delete this contribution?')) return;
             try {
-                await this.api(`/api/goals/${this.contributionGoal.id}/contributions/${contributionId}`, 'DELETE');
+                await this.api(`/goals/${this.contributionGoal.id}/contributions/${contributionId}`, 'DELETE');
                 await this.loadGoalContributions(this.contributionGoal.id);
                 await this.loadSavingsGoals();
                 const updatedGoal = this.savingsGoals.find(g => g.id === this.contributionGoal.id);

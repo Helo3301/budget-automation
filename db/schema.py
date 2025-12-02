@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     last_four TEXT,  -- Last 4 digits for identification
     color TEXT DEFAULT '#3B82F6',  -- Color for charts (hex)
     initial_balance REAL DEFAULT 0,  -- Starting balance when account was added
+    balance_as_of_date TEXT,  -- Date when initial_balance was recorded (ISO format)
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

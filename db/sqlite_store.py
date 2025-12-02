@@ -104,11 +104,19 @@ class SQLiteStore:
                 last_four TEXT,
                 color TEXT DEFAULT '#3B82F6',
                 initial_balance REAL DEFAULT 0,
+                balance_as_of_date TEXT,
                 is_active INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self.conn.commit()
+
+        # Migration: Add balance_as_of_date column if missing
+        cursor = self.conn.execute("PRAGMA table_info(accounts)")
+        account_columns = [row[1] for row in cursor.fetchall()]
+        if "balance_as_of_date" not in account_columns:
+            self.conn.execute("ALTER TABLE accounts ADD COLUMN balance_as_of_date TEXT")
+            self.conn.commit()
 
         # Create indexes only if the columns/tables exist
         if transactions_exists:
@@ -359,20 +367,21 @@ class SQLiteStore:
         account_type: str = "checking",
         last_four: Optional[str] = None,
         color: str = "#3B82F6",
-        initial_balance: float = 0
+        initial_balance: float = 0,
+        balance_as_of_date: Optional[str] = None
     ) -> int:
         """Add a new account. Returns the new account ID."""
         cursor = self.conn.execute(
-            """INSERT INTO accounts (name, institution, account_type, last_four, color, initial_balance)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (name, institution, account_type, last_four, color, initial_balance)
+            """INSERT INTO accounts (name, institution, account_type, last_four, color, initial_balance, balance_as_of_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, institution, account_type, last_four, color, initial_balance, balance_as_of_date)
         )
         self.conn.commit()
         return cursor.lastrowid
 
     def update_account(self, account_id: int, **kwargs) -> bool:
         """Update an account's fields."""
-        allowed = {"name", "institution", "account_type", "last_four", "color", "initial_balance", "is_active"}
+        allowed = {"name", "institution", "account_type", "last_four", "color", "initial_balance", "balance_as_of_date", "is_active"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return False
@@ -400,35 +409,60 @@ class SQLiteStore:
     def get_account_balance(self, account_id: int) -> float:
         """Calculate current balance for an account.
 
-        For credit cards: balance shows amount owed (positive = debt)
-        - initial_balance = credit limit (used for available_credit calculation)
-        - transactions: negative = purchases (increase debt), positive = payments (reduce debt)
-        - Balance owed = -(sum of transactions) = abs(purchases) - payments
+        Uses initial_balance and balance_as_of_date:
+        - Only transactions AFTER balance_as_of_date are summed
+        - If no balance_as_of_date, assumes initial_balance was at the beginning
 
-        For regular accounts (checking, savings):
-        - balance = initial_balance + sum(transactions)
+        For credit cards: balance shows amount owed (positive = debt)
+        For regular accounts (checking, savings): balance = initial + transactions
+        """
+        return self.get_balance_as_of_date(account_id, None)
+
+    def get_balance_as_of_date(self, account_id: int, as_of_date: Optional[str]) -> Optional[float]:
+        """Calculate account balance as of a specific date.
+
+        Args:
+            account_id: The account ID
+            as_of_date: ISO date string (YYYY-MM-DD), or None for current balance
+
+        Returns:
+            The balance as of the given date, or None if date is before balance_as_of_date
         """
         account = self.get_account(account_id)
         if not account:
             return 0
 
         initial = account.get("initial_balance", 0) or 0
+        balance_date = account.get("balance_as_of_date")  # Date when initial_balance was recorded
         account_type = account.get("account_type", "checking")
 
-        cursor = self.conn.execute(
-            "SELECT SUM(amount) FROM transactions WHERE account_id = ?",
-            (account_id,)
-        )
+        # Build query for transaction sum
+        query = "SELECT SUM(amount) FROM transactions WHERE account_id = ?"
+        params = [account_id]
+
+        # If balance_as_of_date is set, only sum transactions AFTER that date
+        if balance_date:
+            query += " AND date > ?"
+            params.append(balance_date)
+
+        # If as_of_date is specified, only sum transactions up to and including that date
+        if as_of_date:
+            # If requesting a date before we know the balance, can't calculate
+            if balance_date and as_of_date < balance_date:
+                return None
+            query += " AND date <= ?"
+            params.append(as_of_date)
+
+        cursor = self.conn.execute(query, params)
         result = cursor.fetchone()[0]
         txn_sum = result if result else 0
 
         if account_type == "credit":
-            # For credit cards: txn_sum is negative for purchases, positive for payments
-            # Balance owed = -txn_sum (purchases become positive debt)
-            # Example: -$500 purchase -> owed $500, +$200 payment -> owed $300
-            return -txn_sum  # Returns amount owed (positive = debt)
+            # For credit cards: initial_balance is the balance owed on balance_as_of_date
+            # txn_sum: negative = purchases (increase debt), positive = payments (reduce debt)
+            return initial - txn_sum
         else:
-            # Regular account: initial + sum
+            # Regular account: initial + sum of transactions
             return initial + txn_sum
 
     def get_credit_card_available(self, account_id: int) -> float:

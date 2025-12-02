@@ -105,8 +105,212 @@
                         </button>
                     </div>
 
-                    <!-- Step 2: Choose Budgeting Method -->
+                    <!-- Step 2: Import CSV (Optional but recommended) -->
                     <div x-show="wizardStep === 2">
+                        <div class="text-center mb-8">
+                            <h2 class="text-2xl font-bold text-white mb-2">Import Your Transactions</h2>
+                            <p class="text-gray-400">Upload a CSV from your bank to analyze your income and spending patterns.</p>
+                        </div>
+
+                        <div class="max-w-2xl mx-auto">
+                            <!-- Step 1: File Upload Area -->
+                            <div x-show="csvColumns.length === 0 && !wizardLoading"
+                                 class="bg-gray-800 rounded-lg p-8 border-2 border-dashed border-gray-600 hover:border-blue-500 transition-colors cursor-pointer text-center"
+                                 @click="$refs.wizardCsvInput.click()"
+                                 @dragover.prevent="$event.target.classList.add('border-blue-500')"
+                                 @dragleave.prevent="$event.target.classList.remove('border-blue-500')"
+                                 @drop.prevent="handleWizardCsvDrop($event)">
+                                <input type="file" accept=".csv" x-ref="wizardCsvInput" class="hidden" @change="handleWizardCsvUpload($event)">
+                                <svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                <p class="text-white font-medium mb-2">Drop your CSV file here</p>
+                                <p class="text-gray-400 text-sm mb-4">or click to browse</p>
+                                <span class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors">Choose File</span>
+                            </div>
+
+                            <!-- Loading State -->
+                            <div x-show="wizardLoading" class="bg-gray-800 rounded-lg p-8 text-center">
+                                <div class="w-12 h-12 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                                <p class="text-white font-medium">Processing...</p>
+                            </div>
+
+                            <!-- Step 2: Column Mapping -->
+                            <div x-show="csvColumns.length > 0 && !csvAnalysis && !wizardLoading" class="space-y-4">
+                                <div class="bg-blue-900/30 border border-blue-700 rounded-lg p-4">
+                                    <p class="text-blue-400 font-medium">CSV Uploaded: <span x-text="csvFilename"></span></p>
+                                    <p class="text-gray-400 text-sm">Now tell us which columns contain your transaction data</p>
+                                </div>
+
+                                <!-- Column Dropdowns -->
+                                <div class="bg-gray-800 rounded-lg p-4 space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-1">Date Column</label>
+                                        <select x-model="selectedDateCol" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                                            <option value="">-- Select the date column --</option>
+                                            <template x-for="col in csvColumns" :key="col">
+                                                <option :value="col" x-text="col"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-1">Amount Column</label>
+                                        <select x-model="selectedAmountCol" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                                            <option value="">-- Select the amount column --</option>
+                                            <template x-for="col in csvColumns" :key="col">
+                                                <option :value="col" x-text="col"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-300 mb-1">Description/Merchant Column</label>
+                                        <select x-model="selectedDescCol" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                                            <option value="">-- Select the description column --</option>
+                                            <template x-for="col in csvColumns" :key="col">
+                                                <option :value="col" x-text="col"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Sample Data Preview -->
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="text-sm font-medium text-gray-300 mb-2">Sample Data Preview:</h4>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-xs">
+                                            <thead>
+                                                <tr class="border-b border-gray-700">
+                                                    <template x-for="col in csvColumns" :key="col">
+                                                        <th class="text-left text-gray-400 pb-2 pr-4" x-text="col"></th>
+                                                    </template>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <template x-for="(row, idx) in csvSampleRows.slice(0, 3)" :key="idx">
+                                                    <tr class="border-b border-gray-700/50">
+                                                        <template x-for="col in csvColumns" :key="col">
+                                                            <td class="text-gray-300 py-1 pr-4 truncate max-w-32" x-text="row[col]"></td>
+                                                        </template>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Analyze Button -->
+                                <button @click="submitColumnMapping()"
+                                        :disabled="!selectedDateCol || !selectedAmountCol || !selectedDescCol"
+                                        :class="(!selectedDateCol || !selectedAmountCol || !selectedDescCol) ? 'bg-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
+                                        class="w-full text-white py-3 rounded-lg font-medium transition-colors">
+                                    Analyze Transactions
+                                </button>
+
+                                <button @click="resetCsvUpload()" class="w-full text-gray-400 hover:text-white text-sm py-2">
+                                    Upload a different file
+                                </button>
+                            </div>
+
+                            <!-- Step 3: Analysis Results -->
+                            <div x-show="csvAnalysis" class="space-y-4">
+                                <div class="bg-green-900/30 border border-green-700 rounded-lg p-4 flex items-center">
+                                    <svg class="w-6 h-6 text-green-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <div>
+                                        <p class="text-green-400 font-medium">Analysis Complete!</p>
+                                        <p class="text-gray-400 text-sm" x-text="`Found ${csvAnalysis?.total_transactions || 0} transactions from ${csvAnalysis?.date_range?.start || 'N/A'} to ${csvAnalysis?.date_range?.end || 'N/A'}`"></p>
+                                    </div>
+                                </div>
+
+                                <!-- Detected Income -->
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="font-medium text-white mb-3 flex items-center">
+                                        <svg class="w-5 h-5 text-green-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                        Detected Income
+                                    </h4>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-gray-400">Estimated Monthly Income:</span>
+                                        <span class="text-2xl font-bold text-green-400" x-text="formatCurrency(csvAnalysis?.income?.estimated_monthly || 0)"></span>
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-2" x-text="`Based on ${csvAnalysis?.income?.count || 0} deposits totaling ${formatCurrency(csvAnalysis?.income?.total || 0)}`"></p>
+                                </div>
+
+                                <!-- Detected Spending by Category -->
+                                <div class="bg-gray-800 rounded-lg p-4">
+                                    <h4 class="font-medium text-white mb-3 flex items-center">
+                                        <svg class="w-5 h-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"></path>
+                                        </svg>
+                                        Detected Spending
+                                    </h4>
+                                    <div class="space-y-2 max-h-48 overflow-y-auto">
+                                        <template x-for="(amount, category) in csvAnalysis?.spending?.by_category || {}" :key="category">
+                                            <div class="flex items-center justify-between text-sm">
+                                                <span class="text-gray-400" x-text="category"></span>
+                                                <span class="text-white" x-text="formatCurrency(amount) + '/mo'"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div class="border-t border-gray-700 mt-3 pt-3 flex items-center justify-between">
+                                        <span class="text-gray-400 font-medium">Total Monthly Spending:</span>
+                                        <span class="text-red-400 font-bold" x-text="formatCurrency(csvAnalysis?.spending?.estimated_monthly || 0)"></span>
+                                    </div>
+                                </div>
+
+                                <!-- Import Button or Import Results -->
+                                <div x-show="!csvImportResult" class="space-y-3">
+                                    <button @click="importCsvTransactions()"
+                                            :disabled="wizardLoading"
+                                            class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-medium py-3 px-4 rounded-lg transition-colors">
+                                        <span x-show="!wizardLoading">Import All Transactions</span>
+                                        <span x-show="wizardLoading">Importing...</span>
+                                    </button>
+                                    <button @click="resetCsvUpload()" class="w-full text-gray-400 hover:text-white text-sm py-2">
+                                        Upload a different file
+                                    </button>
+                                </div>
+
+                                <!-- Import Results -->
+                                <div x-show="csvImportResult" class="bg-green-900/30 border border-green-700 rounded-lg p-4">
+                                    <div class="flex items-center mb-3">
+                                        <svg class="w-6 h-6 text-green-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                        <p class="text-green-400 font-medium">Transactions Imported!</p>
+                                    </div>
+                                    <div class="text-sm space-y-1">
+                                        <p class="text-white"><span class="text-green-400 font-bold" x-text="csvImportResult?.imported || 0"></span> transactions imported</p>
+                                        <p class="text-gray-400" x-show="csvImportResult?.skipped > 0" x-text="`${csvImportResult?.skipped || 0} duplicates skipped`"></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Skip Option -->
+                            <div x-show="csvColumns.length === 0 && !csvAnalysis" class="mt-6 text-center">
+                                <p class="text-gray-500 text-sm mb-2">Don't have a CSV ready?</p>
+                                <button @click="wizardNext()" class="text-blue-400 hover:text-blue-300 text-sm">
+                                    Skip and enter details manually
+                                </button>
+                            </div>
+
+                            <!-- How to export tip -->
+                            <div x-show="csvColumns.length === 0 && !wizardLoading" class="mt-6 bg-blue-900/30 border border-blue-700 rounded-lg p-4">
+                                <h4 class="font-medium text-blue-400 mb-2">How to export from your bank:</h4>
+                                <ol class="text-gray-400 text-sm space-y-1 list-decimal list-inside">
+                                    <li>Log into your bank's website</li>
+                                    <li>Go to your account transactions</li>
+                                    <li>Look for "Export" or "Download" option</li>
+                                    <li>Choose CSV format and download</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Choose Budgeting Method -->
+                    <div x-show="wizardStep === 3">
                         <div class="text-center mb-8">
                             <h2 class="text-2xl font-bold text-white mb-2">Choose Your Budgeting Style</h2>
                             <p class="text-gray-400">Pick a method that fits your lifestyle. Don't worry - you can always adjust later.</p>
@@ -182,11 +386,12 @@
                         </div>
                     </div>
 
-                    <!-- Step 3: Income -->
-                    <div x-show="wizardStep === 3">
+                    <!-- Step 4: Income -->
+                    <div x-show="wizardStep === 4">
                         <div class="text-center mb-8">
                             <h2 class="text-2xl font-bold text-white mb-2">What's Your Income?</h2>
-                            <p class="text-gray-400">Enter your take-home pay (after taxes). This helps us calculate your budget allocations.</p>
+                            <p class="text-gray-400" x-show="!csvAnalysis">Enter your take-home pay (after taxes). This helps us calculate your budget allocations.</p>
+                            <p class="text-gray-400" x-show="csvAnalysis">We detected your income from your transactions. Adjust if needed.</p>
                         </div>
 
                         <div class="max-w-md mx-auto">
@@ -227,8 +432,8 @@
                         </div>
                     </div>
 
-                    <!-- Step 4: Accounts -->
-                    <div x-show="wizardStep === 4">
+                    <!-- Step 5: Accounts -->
+                    <div x-show="wizardStep === 5">
                         <div class="text-center mb-8">
                             <h2 class="text-2xl font-bold text-white mb-2">Add Your Accounts</h2>
                             <p class="text-gray-400">Add your bank accounts and credit cards. This helps organize your transactions when you import them.</p>
@@ -287,6 +492,25 @@
                                             </select>
                                         </div>
                                     </div>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm text-gray-400 mb-1">
+                                                <span x-show="wizardNewAccount.account_type === 'credit'">Current Balance</span>
+                                                <span x-show="wizardNewAccount.account_type !== 'credit'">Current Balance</span>
+                                            </label>
+                                            <div class="relative">
+                                                <span class="absolute left-3 top-2 text-gray-400">$</span>
+                                                <input type="number" x-model.number="wizardNewAccount.initial_balance" step="0.01" placeholder="0.00"
+                                                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 pl-7 text-white focus:outline-none focus:border-blue-500">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm text-gray-400 mb-1">Balance As Of</label>
+                                            <input type="date" x-model="wizardNewAccount.balance_as_of_date"
+                                                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500">
+                                        </div>
+                                    </div>
+                                    <p class="text-xs text-gray-500">Enter the balance shown in your account right now, and today's date</p>
                                     <button @click="addWizardAccount()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition-colors">
                                         Add Account
                                     </button>
@@ -299,11 +523,12 @@
                         </div>
                     </div>
 
-                    <!-- Step 5: Categories & Budgets -->
-                    <div x-show="wizardStep === 5">
+                    <!-- Step 6: Categories & Budgets -->
+                    <div x-show="wizardStep === 6">
                         <div class="text-center mb-6">
                             <h2 class="text-2xl font-bold text-white mb-2">Review Your Budget</h2>
-                            <p class="text-gray-400">Based on your income and chosen method, here's your suggested budget. Adjust any amounts as needed.</p>
+                            <p class="text-gray-400" x-show="!csvAnalysis">Based on your income and chosen method, here's your suggested budget. Adjust any amounts as needed.</p>
+                            <p class="text-gray-400" x-show="csvAnalysis">We've pre-filled budgets based on your actual spending. Adjust to set your targets.</p>
                         </div>
 
                         <!-- Budget Summary -->
@@ -350,8 +575,8 @@
                         </div>
                     </div>
 
-                    <!-- Step 6: Savings Goals -->
-                    <div x-show="wizardStep === 6">
+                    <!-- Step 7: Savings Goals -->
+                    <div x-show="wizardStep === 7">
                         <div class="text-center mb-8">
                             <h2 class="text-2xl font-bold text-white mb-2">Start an Emergency Fund?</h2>
                             <p class="text-gray-400">Financial experts recommend having 3-6 months of expenses saved for emergencies.</p>
@@ -404,37 +629,6 @@
                         </div>
                     </div>
 
-                    <!-- Step 7: Import (Optional) -->
-                    <div x-show="wizardStep === 7">
-                        <div class="text-center mb-8">
-                            <h2 class="text-2xl font-bold text-white mb-2">Import Transactions (Optional)</h2>
-                            <p class="text-gray-400">You can import transactions now or do it later from the dashboard.</p>
-                        </div>
-
-                        <div class="max-w-md mx-auto text-center">
-                            <div class="bg-gray-800 rounded-lg p-8 border-2 border-dashed border-gray-600 hover:border-gray-500 transition-colors">
-                                <svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                                </svg>
-                                <p class="text-gray-400 mb-4">Export a CSV from your bank and import it here</p>
-                                <button @click="completeOnboardingWizard()" class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors">
-                                    Skip for Now
-                                </button>
-                            </div>
-
-                            <div class="mt-6 text-left bg-blue-900/30 border border-blue-700 rounded-lg p-4">
-                                <h4 class="font-medium text-blue-400 mb-2">How to export from your bank:</h4>
-                                <ol class="text-gray-400 text-sm space-y-1 list-decimal list-inside">
-                                    <li>Log into your bank's website</li>
-                                    <li>Go to your account transactions</li>
-                                    <li>Look for "Export" or "Download" option</li>
-                                    <li>Choose CSV format</li>
-                                    <li>Import the file here</li>
-                                </ol>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Step 8: Complete -->
                     <div x-show="wizardStep === 8" class="text-center">
                         <div class="mb-8">
@@ -452,20 +646,24 @@
                         <div class="bg-gray-800 rounded-lg p-6 max-w-md mx-auto mb-8 text-left">
                             <h3 class="font-semibold text-white mb-4">What's Next?</h3>
                             <ul class="space-y-3">
-                                <li class="flex items-start">
+                                <li class="flex items-start" x-show="!csvAnalysis">
                                     <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">1</span>
                                     <span class="text-gray-400">Import your bank transactions via CSV</span>
                                 </li>
+                                <li class="flex items-start" x-show="csvAnalysis">
+                                    <span class="w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">✓</span>
+                                    <span class="text-gray-400">Transactions ready to import from CSV</span>
+                                </li>
                                 <li class="flex items-start">
-                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">2</span>
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0" x-text="csvAnalysis ? '1' : '2'"></span>
                                     <span class="text-gray-400">Categorize transactions to track spending</span>
                                 </li>
                                 <li class="flex items-start">
-                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">3</span>
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0" x-text="csvAnalysis ? '2' : '3'"></span>
                                     <span class="text-gray-400">Review your budget overview weekly</span>
                                 </li>
                                 <li class="flex items-start">
-                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0">4</span>
+                                    <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm mr-3 flex-shrink-0" x-text="csvAnalysis ? '3' : '4'"></span>
                                     <span class="text-gray-400">Use the AI assistant for help anytime</span>
                                 </li>
                             </ul>
@@ -2979,9 +3177,16 @@
                                class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 pl-7 placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500">
                     </div>
                     <p class="text-xs text-gray-500 mt-1">
-                        <span x-show="newAccountType === 'credit'">Your credit card limit</span>
-                        <span x-show="newAccountType !== 'credit'">Starting balance when tracking begins</span>
+                        <span x-show="newAccountType === 'credit'">Your current credit card balance (amount owed)</span>
+                        <span x-show="newAccountType !== 'credit'">Current balance in this account</span>
                     </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Balance As Of Date</label>
+                    <input type="date" x-model="newAccountBalanceAsOfDate"
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-200 rounded px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">The date when this balance was recorded (usually today)</p>
                 </div>
 
                 <div>

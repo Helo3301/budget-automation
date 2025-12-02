@@ -125,7 +125,8 @@ class AccountCreate(BaseModel):
     account_type: str = "checking"  # checking, savings, credit, investment
     last_four: Optional[str] = None  # Last 4 digits
     color: str = "#3B82F6"  # Chart color
-    initial_balance: float = 0  # Starting balance (or credit limit for credit cards)
+    initial_balance: float = 0  # Starting balance (or balance owed for credit cards)
+    balance_as_of_date: Optional[str] = None  # Date when initial_balance was recorded (ISO format)
 
 
 class AccountUpdate(BaseModel):
@@ -135,6 +136,7 @@ class AccountUpdate(BaseModel):
     last_four: Optional[str] = None
     color: Optional[str] = None
     initial_balance: Optional[float] = None
+    balance_as_of_date: Optional[str] = None
 
 
 class RecurringCreate(BaseModel):
@@ -354,7 +356,8 @@ def create_account(account: AccountCreate, service: BudgetService = Depends(get_
         account_type=account.account_type,
         last_four=account.last_four,
         color=account.color,
-        initial_balance=account.initial_balance
+        initial_balance=account.initial_balance,
+        balance_as_of_date=account.balance_as_of_date
     )
     return {"id": account_id, "name": account.name, "success": True}
 
@@ -433,6 +436,44 @@ def delete_account(account_id: int, service: BudgetService = Depends(get_service
 
     service.store.delete_account(account_id)
     return {"success": True}
+
+
+@app.get("/api/accounts/{account_id}/balance")
+def get_account_balance(
+    account_id: int,
+    as_of_date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD) to calculate balance as of. Defaults to current."),
+    service: BudgetService = Depends(get_service)
+):
+    """Get account balance as of a specific date.
+
+    For checking/savings: returns the balance (positive = money available)
+    For credit cards: returns the balance owed (positive = debt)
+
+    If as_of_date is before the account's balance_as_of_date, returns an error
+    since we can't calculate the balance before we know the starting point.
+    """
+    account = service.store.get_account(account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    balance = service.store.get_balance_as_of_date(account_id, as_of_date)
+
+    if balance is None:
+        balance_date = account.get("balance_as_of_date")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot calculate balance before {balance_date}. The starting balance was recorded on that date."
+        )
+
+    return {
+        "account_id": account_id,
+        "account_name": account["name"],
+        "account_type": account["account_type"],
+        "balance": round(balance, 2),
+        "as_of_date": as_of_date or "current",
+        "balance_as_of_date": account.get("balance_as_of_date"),
+        "initial_balance": account.get("initial_balance", 0)
+    }
 
 
 @app.get("/api/accounts/{account_id}/transactions")
@@ -1836,13 +1877,11 @@ def apply_onboarding_setup(
     method = BUDGETING_METHODS[request.budgeting_method]
     results = {"categories_created": 0, "accounts_created": 0}
 
-    # Update budget settings
-    service.store.update_budget_settings({
-        "monthly_income": request.monthly_income,
-        "savings_target_percent": request.savings_target_percent,
-        "emergency_fund_months": request.emergency_fund_months,
-        "budgeting_method": request.budgeting_method
-    })
+    # Update budget settings (one at a time)
+    service.store.update_budget_setting("monthly_income", request.monthly_income)
+    service.store.update_budget_setting("savings_target_percent", request.savings_target_percent)
+    service.store.update_budget_setting("emergency_fund_months", request.emergency_fund_months)
+    service.store.update_budget_setting("budgeting_method", request.budgeting_method)
 
     # Create categories from template
     for cat in method["categories"]:
@@ -1949,6 +1988,336 @@ def get_money_management_tips():
             ]
         }
     }
+
+
+@app.post("/api/onboarding/csv-upload")
+async def upload_csv_for_onboarding(file: UploadFile = File(...)):
+    """Upload CSV and get column headers for user to map.
+
+    Step 1 of CSV import: User uploads file, we return columns and sample data.
+    User then selects which columns are Date, Amount, Description.
+    """
+    # Generate session ID
+    session_id = str(uuid.uuid4())
+
+    # Save to temp location
+    suffix = Path(file.filename).suffix if file.filename else ".csv"
+    import_dir = Path(tempfile.gettempdir()) / "budget_imports"
+    import_dir.mkdir(exist_ok=True)
+    tmp_path = import_dir / f"{session_id}{suffix}"
+
+    content = await file.read()
+    tmp_path.write_bytes(content)
+
+    try:
+        # Read the CSV to get columns and sample data
+        if suffix.lower() in [".xlsx", ".xls"]:
+            df = pd.read_excel(tmp_path)
+        else:
+            df = pd.read_csv(tmp_path)
+
+        if df.empty:
+            tmp_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="CSV file is empty")
+
+        # Get column names (strip whitespace) and rename in DataFrame
+        df.columns = [str(c).strip() for c in df.columns]
+        columns = df.columns.tolist()
+
+        # Get sample rows (first 5)
+        sample_rows = []
+        for _, row in df.head(5).iterrows():
+            sample_rows.append({col: str(row[col]) for col in columns})
+
+        # Store session
+        _import_sessions[session_id] = {
+            "file_path": str(tmp_path),
+            "columns": columns,
+            "total_rows": len(df)
+        }
+
+        return {
+            "session_id": session_id,
+            "filename": file.filename,
+            "columns": columns,
+            "total_rows": len(df),
+            "sample_rows": sample_rows
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {str(e)}")
+
+
+class ColumnMapping(BaseModel):
+    session_id: str
+    date_column: str
+    amount_column: str
+    description_column: str
+
+
+@app.post("/api/onboarding/analyze-csv")
+async def analyze_csv_for_onboarding(mapping: ColumnMapping):
+    """Analyze CSV with user-provided column mappings.
+
+    Step 2 of CSV import: User has selected columns, now we analyze.
+    Returns income and spending breakdown.
+    """
+    from collections import defaultdict
+    from datetime import datetime
+
+    session = _import_sessions.get(mapping.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload CSV again.")
+
+    tmp_path = Path(session["file_path"])
+    if not tmp_path.exists():
+        raise HTTPException(status_code=404, detail="CSV file not found. Please upload again.")
+
+    try:
+        # Read CSV
+        suffix = tmp_path.suffix.lower()
+        if suffix in [".xlsx", ".xls"]:
+            df = pd.read_excel(tmp_path)
+        else:
+            df = pd.read_csv(tmp_path)
+
+        # Strip column name whitespace for matching
+        df.columns = [str(c).strip() for c in df.columns]
+
+        date_col = mapping.date_column
+        amount_col = mapping.amount_column
+        desc_col = mapping.description_column
+
+        # Parse transactions
+        transactions = []
+        for _, row in df.iterrows():
+            try:
+                # Get amount - handle various formats
+                amt_str = str(row[amount_col]).replace("$", "").replace(",", "").strip()
+                if amt_str.startswith("(") and amt_str.endswith(")"):
+                    amt = -float(amt_str[1:-1])
+                elif amt_str:
+                    amt = float(amt_str)
+                else:
+                    continue
+
+                merchant = str(row.get(desc_col, "")).upper()
+                date_str = str(row.get(date_col, ""))
+
+                if amt != 0:
+                    transactions.append({
+                        "amount": amt,
+                        "merchant": merchant,
+                        "date": date_str
+                    })
+            except (ValueError, TypeError):
+                continue
+
+        # Calculate income (positive amounts)
+        income_txns = [t for t in transactions if t["amount"] > 0]
+        total_income = sum(t["amount"] for t in income_txns)
+
+        # Calculate spending (negative amounts)
+        expense_txns = [t for t in transactions if t["amount"] < 0]
+        total_spending = abs(sum(t["amount"] for t in expense_txns))
+
+        # Estimate months from date range
+        num_months = 1
+        try:
+            dates = []
+            for t in transactions:
+                if t["date"]:
+                    for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%d/%m/%Y", "%Y/%m/%d"]:
+                        try:
+                            dates.append(datetime.strptime(t["date"].split()[0], fmt))
+                            break
+                        except:
+                            continue
+            if dates:
+                date_range = (max(dates) - min(dates)).days
+                num_months = max(1, date_range / 30)
+                min_date = min(dates).strftime("%Y-%m-%d")
+                max_date = max(dates).strftime("%Y-%m-%d")
+            else:
+                min_date = max_date = "N/A"
+        except:
+            min_date = max_date = "N/A"
+
+        estimated_monthly_income = round(total_income / num_months, 2)
+        estimated_monthly_spending = round(total_spending / num_months, 2)
+
+        # Categorize spending by merchant keywords
+        category_keywords = {
+            "Housing": ["rent", "mortgage", "hoa", "property", "landlord"],
+            "Utilities": ["electric", "gas", "water", "internet", "comcast", "verizon", "att", "t-mobile", "phone"],
+            "Groceries": ["grocery", "kroger", "publix", "walmart", "target", "costco", "aldi", "trader joe", "whole foods", "safeway", "fred meyer", "winco"],
+            "Dining Out": ["restaurant", "cafe", "coffee", "starbucks", "mcdonald", "chipotle", "doordash", "grubhub", "uber eats", "pizza", "jack in the box", "taco", "wendy", "burger"],
+            "Transportation": ["gas", "shell", "exxon", "chevron", "bp", "uber", "lyft", "parking", "toll", "fuel"],
+            "Shopping": ["amazon", "ebay", "etsy", "best buy", "home depot", "lowes", "clothing", "nike", "nordstrom"],
+            "Entertainment": ["netflix", "spotify", "hulu", "disney", "hbo", "movie", "theater", "concert", "ticket"],
+            "Healthcare": ["pharmacy", "cvs", "walgreens", "doctor", "medical", "hospital", "dental", "health"],
+            "Insurance": ["insurance", "geico", "progressive", "allstate", "state farm"],
+            "Subscriptions": ["subscription", "membership", "gym", "patreon", "apple.com", "google"],
+            "Travel": ["airbnb", "hotel", "airline", "flight", "booking", "expedia", "vrbo"]
+        }
+
+        spending_by_category = defaultdict(float)
+        uncategorized = 0
+
+        for t in expense_txns:
+            categorized = False
+            merchant = t["merchant"].lower()
+            for category, keywords in category_keywords.items():
+                if any(kw in merchant for kw in keywords):
+                    spending_by_category[category] += abs(t["amount"])
+                    categorized = True
+                    break
+            if not categorized:
+                uncategorized += abs(t["amount"])
+
+        if uncategorized > 0:
+            spending_by_category["Other"] = uncategorized
+
+        # Convert to monthly averages
+        monthly_spending = {
+            cat: round(amt / num_months, 2)
+            for cat, amt in spending_by_category.items()
+        }
+
+        return {
+            "session_id": mapping.session_id,
+            "total_transactions": len(transactions),
+            "date_range": {"start": min_date, "end": max_date, "months": round(num_months, 1)},
+            "income": {
+                "total": round(total_income, 2),
+                "count": len(income_txns),
+                "estimated_monthly": estimated_monthly_income
+            },
+            "spending": {
+                "total": round(total_spending, 2),
+                "count": len(expense_txns),
+                "estimated_monthly": estimated_monthly_spending,
+                "by_category": monthly_spending
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to analyze: {str(e)}")
+
+
+@app.post("/api/onboarding/import-csv")
+def import_csv_transactions(
+    mapping: ColumnMapping,
+    service: BudgetService = Depends(get_service)
+):
+    """Import transactions from CSV into the database.
+
+    Step 3 of CSV import: User has reviewed analysis, now import transactions.
+    """
+    from datetime import datetime
+
+    session = _import_sessions.get(mapping.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found. Please upload CSV again.")
+
+    tmp_path = Path(session["file_path"])
+    if not tmp_path.exists():
+        raise HTTPException(status_code=404, detail="CSV file not found. Please upload again.")
+
+    try:
+        # Read CSV
+        suffix = tmp_path.suffix.lower()
+        if suffix in [".xlsx", ".xls"]:
+            df = pd.read_excel(tmp_path)
+        else:
+            df = pd.read_csv(tmp_path)
+
+        # Strip column name whitespace
+        df.columns = [str(c).strip() for c in df.columns]
+
+        date_col = mapping.date_column
+        amount_col = mapping.amount_column
+        desc_col = mapping.description_column
+
+        imported = 0
+        skipped = 0
+        errors = 0
+
+        for _, row in df.iterrows():
+            try:
+                # Parse amount
+                amt_str = str(row[amount_col]).replace("$", "").replace(",", "").strip()
+                if amt_str.startswith("(") and amt_str.endswith(")"):
+                    amt = -float(amt_str[1:-1])
+                elif amt_str:
+                    amt = float(amt_str)
+                else:
+                    skipped += 1
+                    continue
+
+                if amt == 0:
+                    skipped += 1
+                    continue
+
+                merchant = str(row.get(desc_col, "")).strip()
+                date_str = str(row.get(date_col, "")).strip()
+
+                # Parse date to standard format
+                parsed_date = None
+                for fmt in ["%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%d/%m/%Y", "%Y/%m/%d"]:
+                    try:
+                        parsed_date = datetime.strptime(date_str.split()[0], fmt)
+                        break
+                    except:
+                        continue
+
+                if not parsed_date:
+                    # Try to use as-is if it looks like a date
+                    parsed_date = date_str
+                else:
+                    parsed_date = parsed_date.strftime("%Y-%m-%d")
+
+                # Add transaction (will skip duplicates)
+                result = service.store.add_transaction(
+                    date=str(parsed_date),
+                    amount=amt,
+                    merchant=merchant,
+                    description=merchant[:100] if len(merchant) > 100 else merchant
+                )
+
+                if result:
+                    imported += 1
+                else:
+                    skipped += 1  # Duplicate
+
+            except Exception as e:
+                errors += 1
+                continue
+
+        # Clean up temp file
+        try:
+            tmp_path.unlink(missing_ok=True)
+            del _import_sessions[mapping.session_id]
+        except:
+            pass
+
+        return {
+            "success": True,
+            "imported": imported,
+            "skipped": skipped,
+            "errors": errors,
+            "total_processed": imported + skipped + errors
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to import: {str(e)}")
 
 
 # === Admin API ===
