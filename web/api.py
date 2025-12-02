@@ -515,6 +515,7 @@ def get_transactions(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     category: Optional[str] = None,
+    search: Optional[str] = Query(None, description="Search in merchant and description"),
     sort_by: str = Query("date", pattern="^(date|amount|merchant)$"),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     service: BudgetService = Depends(get_service)
@@ -522,6 +523,15 @@ def get_transactions(
     """Get paginated list of transactions with optional filtering."""
     # Get all transactions from store
     all_txns = service.store.get_all_transactions()
+
+    # Filter by search term if specified (search in merchant and description)
+    if search:
+        search_lower = search.lower().strip()
+        all_txns = [
+            t for t in all_txns
+            if search_lower in (t.get("merchant") or "").lower()
+            or search_lower in (t.get("description") or "").lower()
+        ]
 
     # Filter by category if specified
     if category:
