@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Budget Automation</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/tailwind.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="manifest" href="/static/manifest.json">
@@ -711,7 +711,7 @@
                 </div>
             </div>
             <!-- Navigation Tabs (no Chat tab - it's now floating) -->
-            <nav class="flex space-x-4 mt-3 overflow-x-auto">
+            <nav class="flex space-x-4 mt-3 pt-2 overflow-x-auto overflow-y-visible">
                 <button @click="tab = 'dashboard'" :class="tab === 'dashboard' ? 'tab-active' : ''"
                         class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
                     Dashboard
@@ -725,10 +725,10 @@
                     Analytics
                 </button>
                 <button @click="tab = 'subscriptions'" :class="tab === 'subscriptions' ? 'tab-active' : ''"
-                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap relative transition-colors">
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors flex items-center gap-1">
                     Subscriptions
                     <span x-show="subscriptionsSummary.overdue_count > 0" x-text="subscriptionsSummary.overdue_count"
-                          class="absolute -top-1 -right-2 bg-red-500 text-white text-xs rounded-full px-1.5"></span>
+                          class="bg-red-500 text-white text-xs rounded-full px-1.5 min-w-[1.25rem] text-center"></span>
                 </button>
                 <button @click="tab = 'goals'" :class="tab === 'goals' ? 'tab-active' : ''"
                         class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
@@ -739,10 +739,10 @@
                     Transactions
                 </button>
                 <button @click="tab = 'uncategorized'" :class="tab === 'uncategorized' ? 'tab-active' : ''"
-                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap relative transition-colors">
+                        class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors flex items-center gap-1">
                     Uncategorized
                     <span x-show="summary.uncategorized > 0" x-text="summary.uncategorized"
-                          class="absolute -top-1 -right-2 bg-red-500 text-white text-xs rounded-full px-1.5"></span>
+                          class="bg-red-500 text-white text-xs rounded-full px-1.5 min-w-[1.25rem] text-center"></span>
                 </button>
                 <button @click="tab = 'recurring'" :class="tab === 'recurring' ? 'tab-active' : ''"
                         class="pb-2 px-1 text-sm font-medium text-gray-400 hover:text-gray-100 whitespace-nowrap transition-colors">
@@ -2074,29 +2074,29 @@
                         <!-- Results -->
                         <div x-show="!importLoading && importResult">
                             <div class="flex flex-col items-center justify-center py-8">
-                                <div x-show="importResult.success" class="w-16 h-16 bg-green-900/30 rounded-full flex items-center justify-center mb-4">
+                                <div x-show="importResult?.success" class="w-16 h-16 bg-green-900/30 rounded-full flex items-center justify-center mb-4">
                                     <svg class="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                     </svg>
                                 </div>
-                                <h4 x-show="importResult.success" class="text-lg font-medium text-green-400 mb-2">Import Complete!</h4>
-                                <div x-show="importResult.success" class="text-center text-gray-300">
-                                    <p><strong x-text="importResult.imported"></strong> transactions imported</p>
-                                    <p x-show="importResult.duplicates > 0" class="text-yellow-400 text-sm mt-1">
-                                        <span x-text="importResult.duplicates"></span> duplicates skipped
+                                <h4 x-show="importResult?.success" class="text-lg font-medium text-green-400 mb-2">Import Complete!</h4>
+                                <div x-show="importResult?.success" class="text-center text-gray-300">
+                                    <p><strong x-text="importResult?.imported || 0"></strong> transactions imported</p>
+                                    <p x-show="(importResult?.duplicates || 0) > 0" class="text-yellow-400 text-sm mt-1">
+                                        <span x-text="importResult?.duplicates || 0"></span> duplicates skipped
                                     </p>
-                                    <p x-show="importResult.total_errors > 0" class="text-red-400 text-sm mt-1">
-                                        <span x-text="importResult.total_errors"></span> rows had errors
+                                    <p x-show="(importResult?.total_errors || 0) > 0" class="text-red-400 text-sm mt-1">
+                                        <span x-text="importResult?.total_errors || 0"></span> rows had errors
                                     </p>
                                 </div>
-                                <div x-show="!importResult.success" class="text-center">
+                                <div x-show="importResult && !importResult.success" class="text-center">
                                     <div class="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
                                         <svg class="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                                         </svg>
                                     </div>
                                     <h4 class="text-lg font-medium text-red-400 mb-2">Import Failed</h4>
-                                    <p class="text-gray-400" x-text="importResult.error || 'Unknown error'"></p>
+                                    <p class="text-gray-400" x-text="importResult?.error || 'Unknown error'"></p>
                                 </div>
                             </div>
                         </div>
@@ -2580,20 +2580,56 @@
                     </button>
                 </div>
             </div>
+            <!-- Bulk Actions Bar -->
+            <div x-show="searchResults.length > 0" class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-3 mb-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <label class="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
+                        <input type="checkbox"
+                               :checked="selectedSearchIds.length === searchResults.length && searchResults.length > 0"
+                               @click="selectAllSearch()"
+                               class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500">
+                        <span>Select All</span>
+                    </label>
+                    <span x-show="selectedSearchIds.length > 0" class="text-sm text-blue-400">
+                        <span x-text="selectedSearchIds.length"></span> selected
+                    </span>
+                </div>
+                <button x-show="selectedSearchIds.length > 0"
+                        @click="openBulkCategorize()"
+                        class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"></path>
+                    </svg>
+                    Categorize Selected
+                </button>
+            </div>
             <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700 divide-y divide-gray-700">
                 <template x-for="txn in searchResults" :key="txn.id">
-                    <div class="p-4 cursor-pointer hover:bg-gray-750 hover:bg-opacity-50 transition-colors" @click="askAboutTransaction(txn)">
-                        <div class="flex justify-between items-center">
-                            <div>
-                                <div class="font-medium text-gray-200" x-text="txn.merchant"></div>
-                                <div class="text-sm text-gray-500" x-text="txn.date"></div>
-                                <div x-show="txn.similarity_score" class="text-xs text-blue-400">
-                                    Similarity: <span x-text="(txn.similarity_score * 100).toFixed(0) + '%'"></span>
+                    <div class="p-4 hover:bg-gray-750 hover:bg-opacity-50 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <!-- Checkbox -->
+                            <input type="checkbox"
+                                   :checked="isSearchSelected(txn.id)"
+                                   @click.stop="toggleSearchSelection(txn.id)"
+                                   class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                            <!-- Transaction Info (clickable for chat) -->
+                            <div class="flex-1 cursor-pointer" @click="askAboutTransaction(txn)">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <div class="font-medium text-gray-200" x-text="txn.merchant"></div>
+                                        <div class="text-sm text-gray-500" x-text="txn.date"></div>
+                                        <div x-show="txn.similarity_score" class="text-xs text-blue-400">
+                                            Similarity: <span x-text="(txn.similarity_score * 100).toFixed(0) + '%'"></span>
+                                        </div>
+                                        <div x-show="txn.category_name" class="text-xs text-green-400 mt-1">
+                                            Category: <span x-text="txn.category_name"></span>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="font-medium" :class="txn.amount < 0 ? 'text-red-400' : 'text-green-400'"
+                                             x-text="formatCurrency(txn.amount)"></div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="text-right">
-                                <div class="font-medium" :class="txn.amount < 0 ? 'text-red-400' : 'text-green-400'"
-                                     x-text="formatCurrency(txn.amount)"></div>
                             </div>
                         </div>
                     </div>
@@ -2848,6 +2884,82 @@
                     Reset All Data
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Bulk Categorize Modal -->
+    <div x-show="showBulkCategorizeModal" x-cloak
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+         @click.self="closeBulkCategorize()">
+        <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 border border-gray-700">
+            <div class="p-4 border-b border-gray-700">
+                <h2 class="text-lg font-bold text-gray-100 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"></path>
+                    </svg>
+                    Categorize <span x-text="selectedSearchIds.length"></span> Transactions
+                </h2>
+            </div>
+            <div class="p-4">
+                <p class="text-sm text-gray-400 mb-4">Select a category to apply to all selected transactions:</p>
+                <div class="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                    <template x-for="cat in categories" :key="cat.id">
+                        <button @click="bulkCategorize(cat.name)"
+                                class="text-left px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg hover:bg-gray-600 hover:border-blue-500 transition-colors">
+                            <div class="font-medium text-gray-200" x-text="cat.name"></div>
+                            <div x-show="cat.budget_amount > 0" class="text-xs text-gray-500">
+                                Budget: <span x-text="formatCurrency(cat.budget_amount)"></span>
+                            </div>
+                        </button>
+                    </template>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-700 flex justify-end">
+                <button @click="closeBulkCategorize()" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Categorize Toast Notification -->
+    <div x-show="bulkCategorizeResult" x-cloak
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 transform translate-y-2"
+         x-transition:enter-end="opacity-100 transform translate-y-0"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 transform translate-y-0"
+         x-transition:leave-end="opacity-0 transform translate-y-2"
+         class="fixed top-20 right-4 z-50">
+        <div x-show="bulkCategorizeResult?.success"
+             class="bg-green-800 border border-green-600 text-green-100 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+            <div>
+                <div class="font-medium">Categorized <span x-text="bulkCategorizeResult?.count || 0"></span> transactions</div>
+                <div class="text-sm text-green-300">Category: <span x-text="bulkCategorizeResult?.category"></span></div>
+            </div>
+            <button @click="bulkCategorizeResult = null" class="ml-2 text-green-300 hover:text-green-100">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        <div x-show="bulkCategorizeResult && !bulkCategorizeResult.success"
+             class="bg-red-800 border border-red-600 text-red-100 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            <div>
+                <div class="font-medium">Categorization Failed</div>
+                <div class="text-sm text-red-300" x-text="bulkCategorizeResult?.error || 'Unknown error'"></div>
+            </div>
+            <button @click="bulkCategorizeResult = null" class="ml-2 text-red-300 hover:text-red-100">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
         </div>
     </div>
 

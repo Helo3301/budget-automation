@@ -57,6 +57,11 @@ class CategorizeRequest(BaseModel):
     category: str
 
 
+class BulkCategorizeRequest(BaseModel):
+    ids: List[int]
+    category: str
+
+
 class TransactionResponse(BaseModel):
     id: int
     date: str
@@ -592,6 +597,40 @@ def categorize_transaction(
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     return {"success": True}
+
+
+@app.post("/api/transactions/bulk-categorize")
+def bulk_categorize_transactions(
+    request: BulkCategorizeRequest,
+    service: BudgetService = Depends(get_service)
+):
+    """Bulk categorize multiple transactions at once."""
+    if not request.ids:
+        raise HTTPException(status_code=400, detail="No transaction IDs provided")
+
+    # Check if category exists
+    categories = service.get_categories()
+    if not any(c["name"] == request.category for c in categories):
+        raise HTTPException(status_code=400, detail=f"Invalid category: {request.category}")
+
+    # Categorize each transaction
+    success_count = 0
+    failed_ids = []
+    for txn_id in request.ids:
+        try:
+            if service.categorize_transaction(txn_id, request.category):
+                success_count += 1
+            else:
+                failed_ids.append(txn_id)
+        except Exception:
+            failed_ids.append(txn_id)
+
+    return {
+        "success": True,
+        "categorized": success_count,
+        "failed": len(failed_ids),
+        "failed_ids": failed_ids
+    }
 
 
 @app.get("/api/recurring")

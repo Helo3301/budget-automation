@@ -312,6 +312,9 @@ function app() {
         anomalies: [],
         searchQuery: '',
         searchResults: [],
+        selectedSearchIds: [],
+        showBulkCategorizeModal: false,
+        bulkCategorizeResult: null,
 
         // Import
         showImport: false,
@@ -1058,8 +1061,87 @@ function app() {
         async doSearch() {
             if (!this.searchQuery.trim()) return;
             this.loading = true;
+            this.selectedSearchIds = []; // Clear selections on new search
             try {
                 this.searchResults = await this.api(`/search?q=${encodeURIComponent(this.searchQuery)}`);
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        // Bulk categorization for search results
+        toggleSearchSelection(txnId) {
+            const idx = this.selectedSearchIds.indexOf(txnId);
+            if (idx === -1) {
+                // Use spread to create new array (triggers Alpine.js reactivity)
+                this.selectedSearchIds = [...this.selectedSearchIds, txnId];
+            } else {
+                // Use filter to create new array (triggers Alpine.js reactivity)
+                this.selectedSearchIds = this.selectedSearchIds.filter(id => id !== txnId);
+            }
+        },
+
+        isSearchSelected(txnId) {
+            return this.selectedSearchIds.includes(txnId);
+        },
+
+        selectAllSearch() {
+            if (this.selectedSearchIds.length === this.searchResults.length) {
+                this.selectedSearchIds = [];
+            } else {
+                this.selectedSearchIds = this.searchResults.map(t => t.id);
+            }
+        },
+
+        openBulkCategorize() {
+            if (this.selectedSearchIds.length === 0) {
+                alert('Please select at least one transaction');
+                return;
+            }
+            this.showBulkCategorizeModal = true;
+        },
+
+        closeBulkCategorize() {
+            this.showBulkCategorizeModal = false;
+        },
+
+        async bulkCategorize(category) {
+            if (this.selectedSearchIds.length === 0) return;
+            const count = this.selectedSearchIds.length;
+            this.loading = true;
+            try {
+                const result = await this.api('/transactions/bulk-categorize', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        ids: this.selectedSearchIds,
+                        category: category
+                    })
+                });
+                this.showBulkCategorizeModal = false;
+                this.selectedSearchIds = [];
+                // Show success feedback
+                this.bulkCategorizeResult = {
+                    success: true,
+                    count: result.categorized,
+                    category: category,
+                    failed: result.failed
+                };
+                // Auto-hide after 4 seconds
+                setTimeout(() => { this.bulkCategorizeResult = null; }, 4000);
+                // Refresh data
+                await Promise.all([
+                    this.loadSummary(),
+                    this.loadUncategorized(),
+                    this.loadTransactions(),
+                    this.doSearch() // Re-run search to update results
+                ]);
+            } catch (error) {
+                this.showBulkCategorizeModal = false;
+                this.bulkCategorizeResult = {
+                    success: false,
+                    error: error.message
+                };
+                setTimeout(() => { this.bulkCategorizeResult = null; }, 4000);
             } finally {
                 this.loading = false;
             }
@@ -2570,8 +2652,8 @@ function app() {
         },
 
         getMonthlyNeeded(goal) {
-            if (!goal.target_date) return null;
-            const remaining = goal.target_amount - goal.current_amount;
+            if (!goal || !goal.target_date) return 0;
+            const remaining = (goal.target_amount || 0) - (goal.current_amount || 0);
             if (remaining <= 0) return 0;
             const daysRemaining = this.getDaysRemaining(goal.target_date);
             if (!daysRemaining || daysRemaining <= 0) return remaining;

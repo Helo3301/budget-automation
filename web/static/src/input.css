@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@source "../**/*.{html,js}";
+@source "../../templates/**/*.html";
+
+@theme {
+  /* Custom gray colors */
+  --color-gray-750: #2D374D;
+  --color-gray-850: #1A2234;
+}
+
+/* Custom utility classes */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+@utility scrollbar-dark {
+  scrollbar-color: #4B5563 #1F2937;
+}

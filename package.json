@@ -1,0 +1,30 @@
+{
+  "name": "budget_automation",
+  "version": "1.0.0",
+  "description": "A local, privacy-first personal finance tracker with AI-powered categorization and a modern web dashboard.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "css:build": "tailwindcss -i ./web/static/src/input.css -o ./web/static/css/tailwind.css --minify",
+    "css:watch": "tailwindcss -i ./web/static/src/input.css -o ./web/static/css/tailwind.css --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Helo3301/budget-automation.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Helo3301/budget-automation/issues"
+  },
+  "homepage": "https://github.com/Helo3301/budget-automation#readme",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.17",
+    "tailwindcss": "^4.1.17"
+  }
+}

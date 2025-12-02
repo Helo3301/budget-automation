@@ -71,3 +71,7 @@ import_sessions/
 # Config with secrets (if any)
 config.local.py
 secrets.py
+
+# Node.js
+node_modules/
+package-lock.json
