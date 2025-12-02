@@ -195,29 +195,64 @@ class BudgetService:
         query: str,
         k: int = 5
     ) -> List[Dict[str, Any]]:
-        """Search for similar transactions using semantic search.
+        """Search for similar transactions using hybrid search (text + semantic).
+
+        Prioritizes exact text matches, then uses semantic search for additional results.
 
         Args:
-            query: Search query (e.g., "coffee shops", "subscriptions")
+            query: Search query (e.g., "coffee shops", "dairy queen")
             k: Number of results to return
 
         Returns:
             List of similar transactions
         """
-        embedding = self.embedder.embed(query)
-        similar = self.vector_store.search(embedding, k=k)
-
-        # Enrich with full transaction data
         results = []
-        for s in similar:
-            txn = self.store.get_transaction(s["transaction_id"])
-            if txn:
-                results.append({
-                    **txn,
-                    "similarity_score": 1 - s.get("_distance", 0)
-                })
+        seen_ids = set()
+        query_lower = query.lower().strip()
 
-        return results
+        # Step 1: Find exact text matches first (highest priority)
+        all_txns = self.store.get_all_transactions()
+        text_matches = []
+        for txn in all_txns:
+            merchant = (txn.get("merchant") or "").lower()
+            description = (txn.get("description") or "").lower()
+            if query_lower in merchant or query_lower in description:
+                text_matches.append({
+                    **txn,
+                    "similarity_score": 1.0  # Perfect match
+                })
+                seen_ids.add(txn["id"])
+
+        # Sort text matches by date (newest first) and take up to k
+        text_matches.sort(key=lambda x: x.get("date", ""), reverse=True)
+        results.extend(text_matches[:k])
+
+        # Step 2: If we need more results, use semantic search
+        if len(results) < k:
+            remaining = k - len(results)
+            embedding = self.embedder.embed(query)
+            similar = self.vector_store.search(embedding, k=remaining + 10)  # Get extras to filter
+
+            for s in similar:
+                if s["transaction_id"] in seen_ids:
+                    continue
+                txn = self.store.get_transaction(s["transaction_id"])
+                if txn:
+                    # Convert L2 distance to similarity (0-1 range)
+                    # L2 distance ranges from 0 (identical) to potentially large numbers
+                    # Using exp(-distance) to convert to 0-1 similarity
+                    import math
+                    distance = s.get("_distance", 0)
+                    similarity = math.exp(-distance) if distance >= 0 else 0
+                    results.append({
+                        **txn,
+                        "similarity_score": similarity
+                    })
+                    seen_ids.add(txn["id"])
+                    if len(results) >= k:
+                        break
+
+        return results[:k]
 
     def get_uncategorized(self) -> List[Dict[str, Any]]:
         """Get all uncategorized transactions."""
